@@ -96,6 +96,7 @@ def generate_solweig(
     body_shortwave_absorp: float = 0.7,
     body_longwave_absorp: float = 0.95,
     estimate_radiation_from_global=False,
+    folder_path_perez: str | None = None,
 ):
     as_cylinder = 0
     standing = True
@@ -366,14 +367,51 @@ def generate_solweig(
     buildings[buildings < 2.0] = 1.0
     buildings[buildings >= 2.0] = 0.0
 
-    # Import shadow matrices (Anisotropic sky)
-    anisotropic_sky = 0
-    diffsh = None
-    shmat = None
-    vegshmat = None
-    vbshvegshmat = None
-    asvf = None
-    patch_option = 0
+    if folder_path_perez:  # UseAniso
+        anisotropic_sky = 1
+        data = np.load(folder_path_perez)
+        shmat = data["shadowmat"]
+        vegshmat = data["vegshadowmat"]
+        vbshvegshmat = data["vbshmat"]
+        if usevegdem == 1:
+            diffsh = np.zeros((dsm_height, dsm_width, shmat.shape[2]))
+            for i in range(0, shmat.shape[2]):
+                diffsh[:, :, i] = shmat[:, :, i] - (1 - vegshmat[:, :, i]) * (
+                    1 - trans_veg
+                )  # changes in psi not implemented yet
+        else:
+            diffsh = shmat
+            vegshmat += 1
+            vbshvegshmat += 1
+
+        # Estimate number of patches based on shadow matrices
+        if shmat.shape[2] == 145:
+            patch_option = 1  # patch_option = 1 # 145 patches
+        elif shmat.shape[2] == 153:
+            patch_option = 2  # patch_option = 2 # 153 patches
+        elif shmat.shape[2] == 306:
+            patch_option = 3  # patch_option = 3 # 306 patches
+        elif shmat.shape[2] == 612:
+            patch_option = 4  # patch_option = 4 # 612 patches
+
+        # asvf to calculate sunlit and shaded patches
+        asvf = np.arccos(np.sqrt(svf))
+
+        anisotropic_feedback = (
+            "Sky divided into "
+            + str(int(shmat.shape[2]))
+            + " patches\n \
+                                Anisotropic sky for diffuse shortwave radiation (Perez et al., 1993) and longwave radiation (Martin & Berdahl, 1984)"
+        )
+        print(anisotropic_feedback)
+    else:
+        anisotropic_sky = 0
+        diffsh = None
+        shmat = None
+        vegshmat = None
+        vbshvegshmat = None
+        asvf = None
+        patch_option = 0
 
     # % Ts parameterisation maps
     TgK = Knight + 0.37
