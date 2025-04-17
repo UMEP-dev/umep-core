@@ -14,8 +14,10 @@ const THREE_PI_OVER_4: f64 = 3.0 * PI_OVER_4;
 const FIVE_PI_OVER_4: f64 = 5.0 * PI_OVER_4;
 const SEVEN_PI_OVER_4: f64 = 7.0 * PI_OVER_4;
 const TAU: f64 = std::f64::consts::TAU; // 2 * PI
+const EPSILON: f64 = 1e-8; // Small constant for floating-point equality checks
 
 #[pyclass]
+/// Result of the shadowing function, containing all output shadow maps.
 pub struct ShadowingResult {
     #[pyo3(get)]
     pub veg_shadow_map: Py<PyArray2<f64>>, // Renamed from vegsh
@@ -137,7 +139,7 @@ fn shade_on_walls(
     wallsun.mapv_inplace(|v| if v < 0.0 { 0.0 } else { v }); // Height cannot be negative
                                                              // Remove walls in self-shadow (where facesh == 1)
     Zip::from(&mut wallsun).and(&facesh).for_each(|w, &fh| {
-        if fh == 1.0 {
+        if (fh - 1.0).abs() < EPSILON {
             *w = 0.0
         }
     });
@@ -182,32 +184,78 @@ fn shade_on_walls(
 }
 
 #[pyfunction]
+/// Calculates shadow maps for buildings, vegetation, and walls given DSM and sun position.
+///
+/// # Arguments
+/// * `dsm` - Digital Surface Model (2D array)
+/// * `veg_canopy_dsm` - Vegetation canopy DSM (2D array)
+/// * `veg_trunk_dsm` - Vegetation trunk DSM (2D array)
+/// * `azimuth_deg` - Sun azimuth in degrees
+/// * `altitude_deg` - Sun altitude in degrees
+/// * `scale` - Pixel scale
+/// * `amaxvalue` - Maximum height difference
+/// * `bush` - Bush/low vegetation layer
+/// * `walls` - Wall height layer
+/// * `aspect` - Wall aspect layer
+/// * `walls_scheme` - Optional wall scheme
+/// * `aspect_scheme` - Optional aspect scheme
+///
+/// # Returns
+/// * `ShadowingResult` struct with all output maps
 pub fn shadowingfunction_wallheight_23(
     py: Python,
-    dsm: PyReadonlyArray2<f64>,            // Renamed from a
-    veg_canopy_dsm: PyReadonlyArray2<f64>, // Renamed from vegdem
-    veg_trunk_dsm: PyReadonlyArray2<f64>,  // Renamed from vegdem2
-    azimuth_deg: f64, // Sun azimuth angle (degrees, 0=N, 90=E) - Renamed for clarity
-    altitude_deg: f64, // Sun altitude angle (degrees) - Renamed for clarity
-    scale: f64,       // Scale factor for DSM resolution (e.g., 1.0 for 1m pixels)
-    amaxvalue: f64,   // Maximum possible height difference in the DSM (used for loop termination)
-    bush: PyReadonlyArray2<f64>, // Input Bush/Low Vegetation layer (presence/type indicator)
-    walls: PyReadonlyArray2<f64>, // Input Wall Height layer (height above ground)
-    aspect: PyReadonlyArray2<f64>, // Input Wall Aspect layer (degrees or radians)
-    // Added optional arguments
+    dsm: PyReadonlyArray2<f64>,
+    veg_canopy_dsm: PyReadonlyArray2<f64>,
+    veg_trunk_dsm: PyReadonlyArray2<f64>,
+    azimuth_deg: f64,
+    altitude_deg: f64,
+    scale: f64,
+    amaxvalue: f64,
+    bush: PyReadonlyArray2<f64>,
+    walls: PyReadonlyArray2<f64>,
+    aspect: PyReadonlyArray2<f64>,
     walls_scheme: Option<PyReadonlyArray2<f64>>,
     aspect_scheme: Option<PyReadonlyArray2<f64>>,
 ) -> PyResult<PyObject> {
-    // --- Input Conversions and Initializations ---
-    let dsm_view = dsm.as_array(); // Renamed from a
-    let veg_canopy_dsm_view = veg_canopy_dsm.as_array(); // Renamed from vegdem
-    let veg_trunk_dsm_view = veg_trunk_dsm.as_array(); // Renamed from vegdem2
+    // --- Input Shape Validation ---
+    let dsm_view = dsm.as_array();
+    let veg_canopy_dsm_view = veg_canopy_dsm.as_array();
+    let veg_trunk_dsm_view = veg_trunk_dsm.as_array();
     let bush_view = bush.as_array();
     let walls_view = walls.as_array();
     let aspect_view = aspect.as_array();
-    // Convert sun angles from degrees to radians
-    let azimuth_rad = azimuth_deg * DEGREES_TO_RADIANS; // Renamed
-    let altitude_rad = altitude_deg * DEGREES_TO_RADIANS; // Renamed
+    let shape = dsm_view.shape();
+    let all_shapes = [
+        veg_canopy_dsm_view.shape(),
+        veg_trunk_dsm_view.shape(),
+        bush_view.shape(),
+        walls_view.shape(),
+        aspect_view.shape(),
+    ];
+    if all_shapes.iter().any(|&s| s != shape) {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "All input arrays must have the same shape.",
+        ));
+    }
+    if let Some(walls_scheme_py) = &walls_scheme {
+        if walls_scheme_py.as_array().shape() != shape {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "walls_scheme must have the same shape as dsm.",
+            ));
+        }
+    }
+    if let Some(aspect_scheme_py) = &aspect_scheme {
+        if aspect_scheme_py.as_array().shape() != shape {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "aspect_scheme must have the same shape as dsm.",
+            ));
+        }
+    }
+
+    // Clamp calculated slice indices to valid bounds
+    let clamp =
+        |v: f64, min: usize, max: usize| -> usize { v.max(min as f64).min(max as f64) as usize };
+
     let sizex = dsm_view.shape()[0];
     let sizey = dsm_view.shape()[1];
     // Initialize loop variables for shadow casting steps
@@ -228,14 +276,14 @@ pub fn shadowingfunction_wallheight_23(
     let mut propagated_bldg_shadow_height = dsm_view.to_owned(); // Renamed from f (starts as DSM)
     let mut propagated_veg_shadow_height = veg_canopy_dsm_view.to_owned(); // Renamed from shvoveg (starts as vegdem)
                                                                            // Pre-calculate trigonometric values and constants for the loop
-    let sinazimuth = azimuth_rad.sin();
-    let cosazimuth = azimuth_rad.cos();
-    let tanazimuth = azimuth_rad.tan();
+    let sinazimuth = azimuth_deg.to_radians().sin();
+    let cosazimuth = azimuth_deg.to_radians().cos();
+    let tanazimuth = azimuth_deg.to_radians().tan();
     let signsinazimuth = sinazimuth.signum();
     let signcosazimuth = cosazimuth.signum();
     let dssin = (1.0 / sinazimuth).abs(); // Incremental distance for dy step
     let dscos = (1.0 / cosazimuth).abs(); // Incremental distance for dx step
-    let tanaltitudebyscale = altitude_rad.tan() / scale; // Tangent of altitude adjusted by scale
+    let tanaltitudebyscale = altitude_deg.to_radians().tan() / scale; // Tangent of altitude adjusted by scale
     let mut index = 0.0; // Loop counter, represents steps away from the source pixel
     let mut dzprev = 0.0; // Previous dz value (for pergola logic)
 
@@ -246,8 +294,8 @@ pub fn shadowingfunction_wallheight_23(
         // Calculate shadow step offsets (dx, dy) based on azimuth
         // This determines the direction of the shadow step for the current index.
         // Logic handles different azimuth quadrants to ensure correct stepping direction.
-        if (PI_OVER_4 <= azimuth_rad && azimuth_rad < THREE_PI_OVER_4) // Azimuth 45 to 135 deg
-            || (FIVE_PI_OVER_4 <= azimuth_rad && azimuth_rad < SEVEN_PI_OVER_4)
+        if (PI_OVER_4 <= azimuth_deg.to_radians() && azimuth_deg.to_radians() < THREE_PI_OVER_4) // Azimuth 45 to 135 deg
+            || (FIVE_PI_OVER_4 <= azimuth_deg.to_radians() && azimuth_deg.to_radians() < SEVEN_PI_OVER_4)
         // Azimuth 225 to 315 deg
         {
             // Step primarily in y-direction
@@ -259,8 +307,10 @@ pub fn shadowingfunction_wallheight_23(
             dx = -1.0 * signcosazimuth * index;
         }
         // Determine incremental distance (ds) based on primary step direction
-        let ds = if (PI_OVER_4 <= azimuth_rad && azimuth_rad < THREE_PI_OVER_4)
-            || (FIVE_PI_OVER_4 <= azimuth_rad && azimuth_rad < SEVEN_PI_OVER_4)
+        let ds = if (PI_OVER_4 <= azimuth_deg.to_radians()
+            && azimuth_deg.to_radians() < THREE_PI_OVER_4)
+            || (FIVE_PI_OVER_4 <= azimuth_deg.to_radians()
+                && azimuth_deg.to_radians() < SEVEN_PI_OVER_4)
         {
             dssin
         } else {
@@ -277,14 +327,14 @@ pub fn shadowingfunction_wallheight_23(
         // Calculate slicing indices for shifting arrays based on dx, dy
         // xc1, yc1, xc2, yc2: Source array slice bounds
         // xp1, yp1, xp2, yp2: Target array slice bounds (current pixel perspective)
-        let xc1 = ((dx + dx.abs()) / 2.0) as usize;
-        let xc2 = (sizex as f64 + (dx - dx.abs()) / 2.0) as usize;
-        let yc1 = ((dy + dy.abs()) / 2.0) as usize;
-        let yc2 = (sizey as f64 + (dy - dy.abs()) / 2.0) as usize;
-        let xp1 = (-(dx - dx.abs()) / 2.0) as usize;
-        let xp2 = (sizex as f64 - (dx + dx.abs()) / 2.0) as usize;
-        let yp1 = (-(dy - dy.abs()) / 2.0) as usize;
-        let yp2 = (sizey as f64 - (dy + dy.abs()) / 2.0) as usize;
+        let xc1 = clamp((dx + dx.abs()) / 2.0, 0, sizex);
+        let xc2 = clamp(sizex as f64 + (dx - dx.abs()) / 2.0, 0, sizex);
+        let yc1 = clamp((dy + dy.abs()) / 2.0, 0, sizey);
+        let yc2 = clamp(sizey as f64 + (dy - dy.abs()) / 2.0, 0, sizey);
+        let xp1 = clamp(-(dx - dx.abs()) / 2.0, 0, sizex);
+        let xp2 = clamp(sizex as f64 - (dx + dx.abs()) / 2.0, 0, sizex);
+        let yp1 = clamp(-(dy - dy.abs()) / 2.0, 0, sizey);
+        let yp2 = clamp(sizey as f64 - (dy + dy.abs()) / 2.0, 0, sizey);
         // Shift DSM, vegdem, vegdem2 arrays by (-dx, -dy) and subtract dz
         // This simulates looking 'back' along the sun ray from the current pixel.
         if xc2 > xc1 && yc2 > yc1 && xp2 > xp1 && yp2 > yp1 {
@@ -415,7 +465,7 @@ pub fn shadowingfunction_wallheight_23(
 
     // Calculate wall shadows using the helper function (first call)
     let (wallsh, wallsun, wallshve, facesh, facesun) = shade_on_walls(
-        azimuth_rad,
+        azimuth_deg.to_radians(),
         aspect_view,
         walls_view,
         dsm_view,
@@ -431,7 +481,7 @@ pub fn shadowingfunction_wallheight_23(
 
         // Call shade_on_walls again with scheme arrays
         let (wallsh_, _wallsun_, wallshve_, _facesh_, _facesun_) = shade_on_walls(
-            azimuth_rad,
+            azimuth_deg.to_radians(),
             aspect_scheme_view,                   // Use scheme aspect
             walls_scheme_view,                    // Use scheme walls
             dsm_view,                             // DSM remains the same
