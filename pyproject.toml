@@ -1,6 +1,6 @@
 [project]
 name = "umep"
-version = "0.0.1a4"
+version = "0.0.1a7"
 description = "urban multi-scale environmental predictor"
 readme = "README.md"
 requires-python = ">=3.10, <3.14"
@@ -50,11 +50,29 @@ dependencies = [
 ]
 
 [build-system]
-requires = ["setuptools>=61.0", "wheel", "setuptools_scm[toml]>=6.2"]
-build-backend = "setuptools.build_meta"
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
 
-[dependency-groups]
-dev = ["ipykernel>=6.29.5", "pip>=25.0.1", "poethepoet>=0.33.1"]
+[tool.maturin]
+python-source = "pysrc"
+module-name = 'umep.rustalgos'
+features = ["pyo3/extension-module"]
+
+[tool.setuptools]
+packages = ["umep"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.2.0",
+    "pandas-stubs>=1.5.2.221213",
+    "jupyterlab>=3.5.2",
+    "jupyter>=1.0.0",
+    "maturin>=1.8.3",
+    "pip>=23.2",
+    "ruff>=0.5.1",
+    "poethepoet>=0.29.0",
+    "pyright>=1.1.398",
+]
 
 [project.urls]
 homepage = "https://github.com/UMEP-dev/umep-core"
@@ -63,9 +81,6 @@ repository = "https://github.com/UMEP-dev/umep-core"
 
 [tool.poe.tasks]
 verify_project = { shell = "ruff format && ruff check && pyright . && pytest ./tests" }
-
-[tool.setuptools]
-packages = { find = {} }
 
 [tool.ruff]
 line-length = 120

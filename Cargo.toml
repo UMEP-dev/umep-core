@@ -1,0 +1,13 @@
+[package]
+name = "rustalgos"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.24.1", features = ["extension-module"] }
+maturin = "1.5"
+ndarray = "0.16.1"
+numpy = "0.24.0"
