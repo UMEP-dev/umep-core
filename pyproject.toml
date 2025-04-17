@@ -1,6 +1,6 @@
 [project]
 name = "umep"
-version = "0.0.1a14"
+version = "0.0.1a34"
 description = "urban multi-scale environmental predictor"
 readme = "README.md"
 requires-python = ">=3.10, <3.14"
@@ -137,4 +137,4 @@ console_output_style = "count"
 log_cli = true
 log_cli_level = "INFO"
 testpaths = ["tests"]
-addopts = "--ignore=tests/test_performance.py --ignore=temp/"
+addopts = "-s"

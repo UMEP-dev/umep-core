@@ -159,7 +159,9 @@ fn shade_on_walls(
         .and(&wallbol)
         .par_for_each(|w, &sv, &wb| *w = sv * wb);
     // Subtract building shadow height (already accounted for in wallsh)
-    wallshve = &wallshve - &wallsh;
+    Zip::from(&mut wallshve)
+        .and(&wallsh)
+        .par_for_each(|wsv, &wsh| *wsv -= wsh); // In-place subtraction
     wallshve.par_mapv_inplace(|v| if v < 0.0 { 0.0 } else { v }); // Cannot be negative
                                                                   // Cap vegetation shadow height at total wall height
     Zip::from(&mut wallshve).and(walls).par_for_each(|wsv, &w| {
@@ -168,8 +170,10 @@ fn shade_on_walls(
         }
     });
     // Adjust sunlit wall height by removing vegetation shadow
-    wallsun = &wallsun - &wallshve;
-    // Correct potential negative values introduced by subtraction
+    Zip::from(&mut wallsun)
+        .and(&wallshve)
+        .par_for_each(|wsu, &wsv| *wsu -= wsv); // In-place subtraction
+                                                // Correct potential negative values introduced by subtraction
     Zip::from(&mut wallshve)
         .and(&wallsun)
         .par_for_each(|wsv, &wsu| {
@@ -267,10 +271,6 @@ pub fn shadowingfunction_wallheight_25(
     let mut temp_veg_trunk_shifted = Array2::<f64>::zeros((sizex, sizey));
     let mut temp_prev_veg_canopy_shifted = Array2::<f64>::zeros((sizex, sizey));
     let mut temp_prev_veg_trunk_shifted = Array2::<f64>::zeros((sizex, sizey));
-    let mut canopy_above_dsm = Array2::<f64>::zeros((sizex, sizey));
-    let mut trunk_above_dsm = Array2::<f64>::zeros((sizex, sizey));
-    let mut prev_canopy_above_dsm = Array2::<f64>::zeros((sizex, sizey));
-    let mut prev_trunk_above_dsm = Array2::<f64>::zeros((sizex, sizey));
     let mut dzprev = 0.0; // Previous dz value (for pergola logic)
 
     // Initialize output/intermediate shadow arrays
@@ -331,10 +331,6 @@ pub fn shadowingfunction_wallheight_25(
         temp_veg_trunk_shifted.fill(0.0);
         temp_prev_veg_canopy_shifted.fill(0.0);
         temp_prev_veg_trunk_shifted.fill(0.0);
-        canopy_above_dsm.fill(0.0);
-        trunk_above_dsm.fill(0.0);
-        prev_canopy_above_dsm.fill(0.0);
-        prev_trunk_above_dsm.fill(0.0);
         // Calculate slicing indices for shifting arrays based on dx, dy
         // xc1, yc1, xc2, yc2: Source array slice bounds
         // xp1, yp1, xp2, yp2: Target array slice bounds (current pixel perspective)
@@ -350,15 +346,24 @@ pub fn shadowingfunction_wallheight_25(
         // This simulates looking 'back' along the sun ray from the current pixel.
         if xc2 > xc1 && yc2 > yc1 && xp2 > xp1 && yp2 > yp1 {
             // Ensure slice bounds are valid
-            temp_veg_canopy_shifted
-                .slice_mut(s![xp1..xp2, yp1..yp2])
-                .assign(&(&veg_canopy_dsm_view.slice(s![xc1..xc2, yc1..yc2]) - dz));
-            temp_veg_trunk_shifted
-                .slice_mut(s![xp1..xp2, yp1..yp2])
-                .assign(&(&veg_trunk_dsm_view.slice(s![xc1..xc2, yc1..yc2]) - dz));
-            temp_dsm_shifted
-                .slice_mut(s![xp1..xp2, yp1..yp2])
-                .assign(&(&dsm_view.slice(s![xc1..xc2, yc1..yc2]) - dz));
+            // Parallelize slice assignments using Zip
+            Zip::from(temp_veg_canopy_shifted.slice_mut(s![xp1..xp2, yp1..yp2]))
+                .and(veg_canopy_dsm_view.slice(s![xc1..xc2, yc1..yc2]))
+                .par_for_each(|target, &source| *target = source - dz);
+            Zip::from(temp_veg_trunk_shifted.slice_mut(s![xp1..xp2, yp1..yp2]))
+                .and(veg_trunk_dsm_view.slice(s![xc1..xc2, yc1..yc2]))
+                .par_for_each(|target, &source| *target = source - dz);
+            Zip::from(temp_dsm_shifted.slice_mut(s![xp1..xp2, yp1..yp2]))
+                .and(dsm_view.slice(s![xc1..xc2, yc1..yc2]))
+                .par_for_each(|target, &source| *target = source - dz);
+
+            // Parallel assignment for previous step shifted arrays (used in pergola logic)
+            Zip::from(temp_prev_veg_canopy_shifted.slice_mut(s![xp1..xp2, yp1..yp2]))
+                .and(veg_canopy_dsm_view.slice(s![xc1..xc2, yc1..yc2]))
+                .par_for_each(|target, &source| *target = source - dzprev);
+            Zip::from(temp_prev_veg_trunk_shifted.slice_mut(s![xp1..xp2, yp1..yp2]))
+                .and(veg_trunk_dsm_view.slice(s![xc1..xc2, yc1..yc2]))
+                .par_for_each(|target, &source| *target = source - dzprev);
         }
         // Propagate building shadow height (propagated_bldg_shadow_height)
         // Takes the maximum height seen so far along the sun ray path (current or shifted DSM)
@@ -383,53 +388,37 @@ pub fn shadowingfunction_wallheight_25(
                 }
             });
         // --- Pergola Logic --- (Handles thin vertical vegetation layers)
-        // Check if current step's shifted vegetation canopy/trunk is above DSM
-        Zip::from(&mut canopy_above_dsm)
+        // Fused calculation: Directly compute pergola shadow contribution and update veg_shadow_map
+        Zip::from(&mut veg_shadow_map)
             .and(&temp_veg_canopy_shifted)
-            .and(&dsm_view)
-            .par_for_each(|fab, &tv, &av| *fab = if tv > av { 1.0 } else { 0.0 });
-        Zip::from(&mut trunk_above_dsm)
             .and(&temp_veg_trunk_shifted)
-            .and(&dsm_view)
-            .par_for_each(|gab, &tv, &av| *gab = if tv > av { 1.0 } else { 0.0 });
-        // Shift vegdem/vegdem2 using the *previous* dz value (dzprev)
-        if xc2 > xc1 && yc2 > yc1 && xp2 > xp1 && yp2 > yp1 {
-            temp_prev_veg_canopy_shifted
-                .slice_mut(s![xp1..xp2, yp1..yp2])
-                .assign(&(&veg_canopy_dsm_view.slice(s![xc1..xc2, yc1..yc2]) - dzprev));
-            temp_prev_veg_trunk_shifted
-                .slice_mut(s![xp1..xp2, yp1..yp2])
-                .assign(&(&veg_trunk_dsm_view.slice(s![xc1..xc2, yc1..yc2]) - dzprev));
-        }
-        // Check if previous step's shifted veg layers were above DSM
-        Zip::from(&mut prev_canopy_above_dsm)
             .and(&temp_prev_veg_canopy_shifted)
-            .and(&dsm_view)
-            .par_for_each(|fab, &tv, &av| *fab = if tv > av { 1.0 } else { 0.0 });
-        Zip::from(&mut prev_trunk_above_dsm)
             .and(&temp_prev_veg_trunk_shifted)
             .and(&dsm_view)
-            .par_for_each(|gab, &tv, &av| *gab = if tv > av { 1.0 } else { 0.0 });
+            .par_for_each(|v_sh, &tvc_s, &tvt_s, &tpvc_s, &tpvt_s, &dsm_val| {
+                // Calculate the four conditions directly
+                let cond1 = if tvc_s > dsm_val { 1.0 } else { 0.0 }; // canopy_above_dsm
+                let cond2 = if tvt_s > dsm_val { 1.0 } else { 0.0 }; // trunk_above_dsm
+                let cond3 = if tpvc_s > dsm_val { 1.0 } else { 0.0 }; // prev_canopy_above_dsm
+                let cond4 = if tpvt_s > dsm_val { 1.0 } else { 0.0 }; // prev_trunk_above_dsm
+
+                let conditions_sum = cond1 + cond2 + cond3 + cond4;
+
+                // Determine pergola shadow based on conditions sum
+                let pergola_shadow = if conditions_sum > SUNLIT_FLAG_INTERMEDIATE
+                    && conditions_sum < PERGOLA_SOLID_THRESHOLD
+                {
+                    SHADOW_FLAG_INTERMEDIATE
+                } else {
+                    SUNLIT_FLAG_INTERMEDIATE
+                };
+
+                // Update overall vegetation shadow map (take max of existing and new pergola shadow)
+                *v_sh = f64::max(*v_sh, pergola_shadow);
+            });
+
         dzprev = dz; // Update dzprev for the next iteration
 
-        // Combine current and previous step checks to detect shadow from thin layers (pergola effect)
-        // Sum the four boolean-like maps (0.0 or 1.0)
-        let pergola_conditions_met =
-            &canopy_above_dsm + &trunk_above_dsm + &prev_canopy_above_dsm + &prev_trunk_above_dsm;
-        let pergola_shadow_map = pergola_conditions_met.mapv(|v| {
-            // Shadow if any condition met (v > 0), but not all four (v < 4, implies solid object)
-            if v > SUNLIT_FLAG_INTERMEDIATE && v < PERGOLA_SOLID_THRESHOLD {
-                SHADOW_FLAG_INTERMEDIATE
-            } else {
-                SUNLIT_FLAG_INTERMEDIATE
-            }
-        });
-
-        // Update overall vegetation shadow map (veg_shadow_map)
-        // Takes the maximum shadow seen so far (existing veg_shadow_map or new pergola shadow)
-        Zip::from(&mut veg_shadow_map)
-            .and(&pergola_shadow_map)
-            .par_for_each(|v, &v2| *v = f64::max(*v, v2));
         // Remove vegetation shadow where building shadow already exists
         Zip::from(&mut veg_shadow_map)
             .and(&bldg_shadow_map)
@@ -440,8 +429,10 @@ pub fn shadowingfunction_wallheight_25(
                 }
             });
         // Accumulate vegetation shadow that blocks potential building shadow
-        // (Used later to correct building shadow map - vbshvegsh logic kept as is)
-        vbshvegsh = &veg_shadow_map + &vbshvegsh;
+        // Use parallel Zip for in-place addition to avoid temporary allocation
+        Zip::from(&mut vbshvegsh)
+            .and(&veg_shadow_map)
+            .par_for_each(|vbs, &vs| *vbs += vs);
         index += 1.0; // Increment loop counter
     }
 
@@ -467,8 +458,13 @@ pub fn shadowingfunction_wallheight_25(
     // Calculate final vegetation shadow volume height (propagated_veg_shadow_height)
     // Height difference where vegetation shadow exists (where final veg_shadow_map is 0.0)
     let final_veg_shadow_mask = veg_shadow_map.mapv(|v| FINAL_SUNLIT_VALUE - v); // Invert back to 1=shadow, 0=sun
-    propagated_veg_shadow_height =
-        (&propagated_veg_shadow_height - &dsm_view) * &final_veg_shadow_mask;
+                                                                                 // Fuse subtraction and multiplication into a single parallel, in-place operation
+    Zip::from(&mut propagated_veg_shadow_height)
+        .and(&dsm_view)
+        .and(&final_veg_shadow_mask)
+        .par_for_each(|pvsh, &dsm, &mask| {
+            *pvsh = (*pvsh - dsm) * mask;
+        });
 
     // Calculate wall shadows using the helper function (first call)
     let (wallsh, wallsun, wallshve, facesh, facesun) = shade_on_walls(

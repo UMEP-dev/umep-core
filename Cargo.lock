@@ -1922,6 +1922,7 @@ dependencies = [
  "ndarray",
  "numpy",
  "pyo3",
+ "rayon",
 ]
 
 [[package]]
