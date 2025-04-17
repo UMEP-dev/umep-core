@@ -20,7 +20,7 @@ fn register_shadowing_module(py_module: &Bound<'_, PyModule>) -> PyResult<()> {
     submodule.add("__doc__", "Shadow analysis.")?;
     // submodule.add_class::<data::DataEntry>()?;
     submodule.add_function(wrap_pyfunction!(
-        shadowing::shadowingfunction_wallheight_23,
+        shadowing::shadowingfunction_wallheight_25,
         &submodule
     )?)?;
     py_module.add_submodule(&submodule)?;

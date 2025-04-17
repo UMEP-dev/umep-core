@@ -1,6 +1,9 @@
 # mac
 .DS_Store
 
+# demo data
+demos/data/athens/shadow*
+
 # geopackage peripheral files
 *.gpkg-*
 

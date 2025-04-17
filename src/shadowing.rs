@@ -201,7 +201,7 @@ fn shade_on_walls(
 ///
 /// # Returns
 /// * `ShadowingResult` struct with all output maps
-pub fn shadowingfunction_wallheight_23(
+pub fn shadowingfunction_wallheight_25(
     py: Python,
     dsm: PyReadonlyArray2<f64>,
     veg_canopy_dsm: PyReadonlyArray2<f64>,

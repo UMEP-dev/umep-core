@@ -44,7 +44,7 @@ def test_shadowing_wallheight_23():
     )
 
     def run_rust():
-        shadowing.shadowingfunction_wallheight_23(
+        shadowing.shadowingfunction_wallheight_25(
             dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0, None, None
         )
 
@@ -57,7 +57,7 @@ def test_shadowing_wallheight_23():
         dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0
     )
 
-    result_rust = shadowing.shadowingfunction_wallheight_23(
+    result_rust = shadowing.shadowingfunction_wallheight_25(
         dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0, None, None
     )
 

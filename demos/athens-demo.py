@@ -102,7 +102,7 @@ for shadow_date_Ymd in ["2024-03-21"]:
             # if wanting a specific time then specify below
             # otherwise computed for intervals
             shadow_time_HM=None,  # "%H:%M"
-            time_interval_M=60,  # interval in minutes - if not computing specific time
+            time_interval_M=30,  # interval in minutes - if not computing specific time
             veg_dsm_path=working_path_str + "/CDSM.tif",
         )
 
