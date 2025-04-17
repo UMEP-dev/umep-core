@@ -135,8 +135,8 @@ fn shade_on_walls(
         .and(&walls)
         .and(&shvo)
         .par_for_each(|w, &wa, &shv| *w = wa - shv);
-    wallsun.mapv_inplace(|v| if v < 0.0 { 0.0 } else { v }); // Height cannot be negative
-                                                             // Remove walls in self-shadow (where facesh == 1)
+    wallsun.par_mapv_inplace(|v| if v < 0.0 { 0.0 } else { v }); // Height cannot be negative
+                                                                 // Remove walls in self-shadow (where facesh == 1)
     Zip::from(&mut wallsun).and(&facesh).par_for_each(|w, &fh| {
         if (fh - 1.0).abs() < EPSILON {
             *w = 0.0
@@ -160,8 +160,8 @@ fn shade_on_walls(
         .par_for_each(|w, &sv, &wb| *w = sv * wb);
     // Subtract building shadow height (already accounted for in wallsh)
     wallshve = &wallshve - &wallsh;
-    wallshve.mapv_inplace(|v| if v < 0.0 { 0.0 } else { v }); // Cannot be negative
-                                                              // Cap vegetation shadow height at total wall height
+    wallshve.par_mapv_inplace(|v| if v < 0.0 { 0.0 } else { v }); // Cannot be negative
+                                                                  // Cap vegetation shadow height at total wall height
     Zip::from(&mut wallshve).and(walls).par_for_each(|wsv, &w| {
         if *wsv > w {
             *wsv = w
@@ -177,7 +177,7 @@ fn shade_on_walls(
                 *wsv = 0.0 // If wallsun became negative, veg shadow was overestimated
             }
         });
-    wallsun.mapv_inplace(|v| if v < 0.0 { 0.0 } else { v }); // Ensure wallsun is not negative
+    wallsun.par_mapv_inplace(|v| if v < 0.0 { 0.0 } else { v }); // Ensure wallsun is not negative
 
     (wallsh, wallsun, wallshve, facesh, facesun)
 }
@@ -261,13 +261,19 @@ pub fn shadowingfunction_wallheight_23(
     let mut dx: f64 = 0.0; // Shadow step offset in x-direction
     let mut dy: f64 = 0.0; // Shadow step offset in y-direction
     let mut dz: f64 = 0.0; // Shadow step height offset
-                           // Temporary arrays used within the loop
-    let mut temp_dsm_shifted = Array2::<f64>::zeros((sizex, sizey)); // Renamed from temp
-    let mut temp_veg_canopy_shifted = Array2::<f64>::zeros((sizex, sizey)); // Renamed from tempvegdem
-    let mut temp_veg_trunk_shifted = Array2::<f64>::zeros((sizex, sizey)); // Renamed from tempvegdem2
-    let mut temp_prev_veg_canopy_shifted = Array2::<f64>::zeros((sizex, sizey)); // Renamed from templastfabovea
-    let mut temp_prev_veg_trunk_shifted = Array2::<f64>::zeros((sizex, sizey)); // Renamed from templastgabovea
-                                                                                // Initialize output/intermediate shadow arrays
+                           // Pre-allocate all temporary arrays outside the loop for reuse
+    let mut temp_dsm_shifted = Array2::<f64>::zeros((sizex, sizey));
+    let mut temp_veg_canopy_shifted = Array2::<f64>::zeros((sizex, sizey));
+    let mut temp_veg_trunk_shifted = Array2::<f64>::zeros((sizex, sizey));
+    let mut temp_prev_veg_canopy_shifted = Array2::<f64>::zeros((sizex, sizey));
+    let mut temp_prev_veg_trunk_shifted = Array2::<f64>::zeros((sizex, sizey));
+    let mut canopy_above_dsm = Array2::<f64>::zeros((sizex, sizey));
+    let mut trunk_above_dsm = Array2::<f64>::zeros((sizex, sizey));
+    let mut prev_canopy_above_dsm = Array2::<f64>::zeros((sizex, sizey));
+    let mut prev_trunk_above_dsm = Array2::<f64>::zeros((sizex, sizey));
+    let mut dzprev = 0.0; // Previous dz value (for pergola logic)
+
+    // Initialize output/intermediate shadow arrays
     let is_bush_map = bush_view.mapv(|v| if v > 1.0 { 1.0 } else { 0.0 }); // Renamed from bushplant
     let mut bldg_shadow_map = Array2::<f64>::zeros((sizex, sizey)); // Renamed from sh (1=shadow, 0=sun initially)
     let mut vbshvegsh = Array2::<f64>::zeros((sizex, sizey)); // Vegetation blocking building shadow map (Kept name)
@@ -284,7 +290,6 @@ pub fn shadowingfunction_wallheight_23(
     let dscos = (1.0 / cosazimuth).abs(); // Incremental distance for dx step
     let tanaltitudebyscale = altitude_deg.to_radians().tan() / scale; // Tangent of altitude adjusted by scale
     let mut index = 0.0; // Loop counter, represents steps away from the source pixel
-    let mut dzprev = 0.0; // Previous dz value (for pergola logic)
 
     // --- Main Shadow Casting Loop ---
     // Loop continues as long as the shadow height (dz) is less than the max possible height
@@ -317,12 +322,16 @@ pub fn shadowingfunction_wallheight_23(
         };
         // Calculate vertical shadow offset (dz) for this step
         dz = (ds * index) * tanaltitudebyscale;
-        // Reset temporary arrays
+        // No need to reallocate, just fill with zeros
         temp_dsm_shifted.fill(0.0);
         temp_veg_canopy_shifted.fill(0.0);
         temp_veg_trunk_shifted.fill(0.0);
         temp_prev_veg_canopy_shifted.fill(0.0);
         temp_prev_veg_trunk_shifted.fill(0.0);
+        canopy_above_dsm.fill(0.0);
+        trunk_above_dsm.fill(0.0);
+        prev_canopy_above_dsm.fill(0.0);
+        prev_trunk_above_dsm.fill(0.0);
         // Calculate slicing indices for shifting arrays based on dx, dy
         // xc1, yc1, xc2, yc2: Source array slice bounds
         // xp1, yp1, xp2, yp2: Target array slice bounds (current pixel perspective)
@@ -372,12 +381,10 @@ pub fn shadowingfunction_wallheight_23(
             });
         // --- Pergola Logic --- (Handles thin vertical vegetation layers)
         // Check if current step's shifted vegetation canopy/trunk is above DSM
-        let mut canopy_above_dsm = Array2::<f64>::zeros(temp_veg_canopy_shifted.dim()); // Renamed from fabovea
         Zip::from(&mut canopy_above_dsm)
             .and(&temp_veg_canopy_shifted)
             .and(&dsm_view)
             .par_for_each(|fab, &tv, &av| *fab = if tv > av { 1.0 } else { 0.0 });
-        let mut trunk_above_dsm = Array2::<f64>::zeros(temp_veg_trunk_shifted.dim()); // Renamed from gabovea
         Zip::from(&mut trunk_above_dsm)
             .and(&temp_veg_trunk_shifted)
             .and(&dsm_view)
@@ -392,12 +399,10 @@ pub fn shadowingfunction_wallheight_23(
                 .assign(&(&veg_trunk_dsm_view.slice(s![xc1..xc2, yc1..yc2]) - dzprev));
         }
         // Check if previous step's shifted veg layers were above DSM
-        let mut prev_canopy_above_dsm = Array2::<f64>::zeros(temp_prev_veg_canopy_shifted.dim()); // Renamed from lastfabovea
         Zip::from(&mut prev_canopy_above_dsm)
             .and(&temp_prev_veg_canopy_shifted)
             .and(&dsm_view)
             .par_for_each(|fab, &tv, &av| *fab = if tv > av { 1.0 } else { 0.0 });
-        let mut prev_trunk_above_dsm = Array2::<f64>::zeros(temp_prev_veg_trunk_shifted.dim()); // Renamed from lastgabovea
         Zip::from(&mut prev_trunk_above_dsm)
             .and(&temp_prev_veg_trunk_shifted)
             .and(&dsm_view)
@@ -439,22 +444,22 @@ pub fn shadowingfunction_wallheight_23(
 
     // --- Post-Loop Processing ---
     // Finalize building shadow map (bldg_shadow_map): Invert (1=shadow -> 0=shadow, 0=sun -> 1=sun)
-    bldg_shadow_map.mapv_inplace(|v| FINAL_SUNLIT_VALUE - v); // 1.0 - 1.0 = 0.0 (shadow), 1.0 - 0.0 = 1.0 (sun)
-                                                              // Finalize vegetation-blocking-building-shadow map (vbshvegsh)
-    vbshvegsh.mapv_inplace(|v| if v > 0.0 { 1.0 } else { v }); // Threshold to 0 or 1
-                                                               // Subtract final vegetation shadow (veg_shadow_map) - Complex logic, kept as is
+    bldg_shadow_map.par_mapv_inplace(|v| FINAL_SUNLIT_VALUE - v); // 1.0 - 1.0 = 0.0 (shadow), 1.0 - 0.0 = 1.0 (sun)
+                                                                  // Finalize vegetation-blocking-building-shadow map (vbshvegsh)
+    vbshvegsh.par_mapv_inplace(|v| if v > 0.0 { 1.0 } else { v }); // Threshold to 0 or 1
+                                                                   // Subtract final vegetation shadow (veg_shadow_map) - Complex logic, kept as is
     vbshvegsh = &vbshvegsh - &veg_shadow_map; // Subtract current veg shadow from accumulated blocking shadow
-    vbshvegsh.mapv_inplace(|v| 1.0 - v); // Invert result (Interpretation depends on original intent)
+    vbshvegsh.par_mapv_inplace(|v| 1.0 - v); // Invert result (Interpretation depends on original intent)
 
     // Finalize vegetation shadow map (veg_shadow_map): Threshold and Invert (1=shadow -> 0=shadow, 0=sun -> 1=sun)
-    veg_shadow_map.mapv_inplace(|v| {
+    veg_shadow_map.par_mapv_inplace(|v| {
         if v > 0.0 {
             SHADOW_FLAG_INTERMEDIATE
         } else {
             SUNLIT_FLAG_INTERMEDIATE
         }
     });
-    veg_shadow_map.mapv_inplace(|v| FINAL_SUNLIT_VALUE - v); // 1.0 - 1.0 = 0.0 (shadow), 1.0 - 0.0 = 1.0 (sun)
+    veg_shadow_map.par_mapv_inplace(|v| FINAL_SUNLIT_VALUE - v); // 1.0 - 1.0 = 0.0 (shadow), 1.0 - 0.0 = 1.0 (sun)
 
     // Calculate final vegetation shadow volume height (propagated_veg_shadow_height)
     // Height difference where vegetation shadow exists (where final veg_shadow_map is 0.0)

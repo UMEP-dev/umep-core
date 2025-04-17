@@ -61,18 +61,18 @@ def test_shadowing_wallheight_23():
         dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0, None, None
     )
 
-    print("here")
+    assert np.allclose(vegsh, result_rust.veg_shadow_map, atol=0.001)  # Updated property name
+    assert np.allclose(sh, result_rust.bldg_shadow_map, atol=0.001)  # Updated property name
+    assert np.allclose(vbshvegsh, result_rust.vbshvegsh, atol=0.001)
+    assert np.allclose(wallsh, result_rust.wallsh, atol=0.001)
+    assert np.allclose(wallsun, result_rust.wallsun, atol=0.001)
+    assert np.allclose(wallshve, result_rust.wallshve, atol=0.001)
+    assert np.allclose(facesh, result_rust.facesh, atol=0.001)
+    assert np.allclose(facesun, result_rust.facesun, atol=0.001)
 
-    print((vegsh - result_rust.veg_shadow_map).mean())  # Updated property name
-    print((sh - result_rust.bldg_shadow_map).mean())  # Updated property name
-    print((vbshvegsh - result_rust.vbshvegsh).mean())
-    print((wallsh - result_rust.wallsh).mean())
-    print((wallsun - result_rust.wallsun).mean())
-    print((wallshve - result_rust.wallshve).mean())
-    print((facesh - result_rust.facesh).mean())
-    print((facesun - result_rust.facesun).mean())
 
-    print("here")
+# test_shadowing_wallheight_23 (10 runs): min=1.229s, max=1.361s, avg=1.292s
+# test_shadowing_wallheight_23 (10 runs): min=0.745s, max=0.825s, avg=0.776s
 
 
 def test_shadowing():
