@@ -45,7 +45,7 @@ def test_shadowing_wallheight_23():
 
     def run_rust():
         shadowing.shadowingfunction_wallheight_23(
-            dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0
+            dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0, None, None
         )
 
     times_rust = timeit.repeat(run_rust, number=1, repeat=repeats)
@@ -58,13 +58,13 @@ def test_shadowing_wallheight_23():
     )
 
     result_rust = shadowing.shadowingfunction_wallheight_23(
-        dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0
+        dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0, None, None
     )
 
     print("here")
 
-    print((vegsh - result_rust.vegsh).mean())
-    print((sh - result_rust.sh).mean())
+    print((vegsh - result_rust.veg_shadow_map).mean())  # Updated property name
+    print((sh - result_rust.bldg_shadow_map).mean())  # Updated property name
     print((vbshvegsh - result_rust.vbshvegsh).mean())
     print((wallsh - result_rust.wallsh).mean())
     print((wallsun - result_rust.wallsun).mean())
