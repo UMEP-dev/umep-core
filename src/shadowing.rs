@@ -4,7 +4,6 @@ use pyo3::prelude::*;
 use pyo3::IntoPyObject;
 
 // Constants for clarity
-const DEGREES_TO_RADIANS: f64 = std::f64::consts::PI / 180.0;
 const SHADOW_FLAG_INTERMEDIATE: f64 = 1.0; // Value indicating shadow during calculation
 const SUNLIT_FLAG_INTERMEDIATE: f64 = 0.0; // Value indicating sunlit during calculation
 const FINAL_SUNLIT_VALUE: f64 = 1.0; // Final value representing sunlit in output maps
@@ -59,7 +58,7 @@ fn shade_on_walls(
     let mut wallbol = Array2::<f64>::zeros(shape);
     Zip::from(&mut wallbol)
         .and(&walls)
-        .for_each(|w, &v| *w = if v > 0.0 { 1.0 } else { 0.0 });
+        .par_for_each(|w, &v| *w = if v > 0.0 { 1.0 } else { 0.0 });
 
     // Calculate wall face shadow (facesh) based on azimuth and wall aspect
     // Determines if a wall face is oriented away from the sun (in self-shadow)
@@ -71,7 +70,7 @@ fn shade_on_walls(
         Zip::from(&mut facesh)
             .and(aspect)
             .and(&wallbol)
-            .for_each(|f, &asp, &wb| {
+            .par_for_each(|f, &asp, &wb| {
                 // Wall faces shadow if aspect is outside the sun-facing range [azilow, azihigh)
                 // Original MATLAB logic: (asp < azilow || asp >= azihigh) - wb + 1
                 *f = if asp < azilow || asp >= azihigh {
@@ -83,7 +82,7 @@ fn shade_on_walls(
             });
     } else if azilow < 0.0 && azihigh <= TAU {
         let azilow_wrapped = azilow + TAU; // Wrap azilow
-        Zip::from(&mut facesh).and(aspect).for_each(|f, &asp| {
+        Zip::from(&mut facesh).and(aspect).par_for_each(|f, &asp| {
             // Wall faces shadow if aspect is within the wrapped range (azilow_wrapped, azihigh]
             // Original MATLAB logic: (asp > azilow_wrapped || asp <= azihigh) * -1 + 1
             *f = if asp > azilow_wrapped || asp <= azihigh {
@@ -94,7 +93,7 @@ fn shade_on_walls(
         });
     } else if azilow > 0.0 && azihigh >= TAU {
         let azihigh_wrapped = azihigh - TAU; // Wrap azihigh
-        Zip::from(&mut facesh).and(aspect).for_each(|f, &asp| {
+        Zip::from(&mut facesh).and(aspect).par_for_each(|f, &asp| {
             // Wall faces shadow if aspect is within the wrapped range (azilow, azihigh_wrapped]
             // Original MATLAB logic: (asp > azilow || asp <= azihigh_wrapped) * -1 + 1
             *f = if asp > azilow || asp <= azihigh_wrapped {
@@ -110,7 +109,7 @@ fn shade_on_walls(
     Zip::from(&mut shvo)
         .and(&propagated_bldg_shadow_height)
         .and(&dsm)
-        .for_each(|s, &fv, &dv| *s = fv - dv);
+        .par_for_each(|s, &fv, &dv| *s = fv - dv);
 
     // Calculate sunlit wall faces (facesun)
     // Wall is sunlit if it exists (walls > 0) and is not in self-shadow (facesh == 0)
@@ -119,7 +118,7 @@ fn shade_on_walls(
     Zip::from(&mut facesun)
         .and(&facesh)
         .and(walls)
-        .for_each(|fs, &fh, &w| {
+        .par_for_each(|fs, &fh, &w| {
             let wall_exists = w > 0.0;
             let wall_exists_flag = if wall_exists { 1.0 } else { 0.0 };
             *fs = if (fh + wall_exists_flag) == 1.0 && wall_exists {
@@ -135,10 +134,10 @@ fn shade_on_walls(
     Zip::from(&mut wallsun)
         .and(&walls)
         .and(&shvo)
-        .for_each(|w, &wa, &shv| *w = wa - shv);
+        .par_for_each(|w, &wa, &shv| *w = wa - shv);
     wallsun.mapv_inplace(|v| if v < 0.0 { 0.0 } else { v }); // Height cannot be negative
                                                              // Remove walls in self-shadow (where facesh == 1)
-    Zip::from(&mut wallsun).and(&facesh).for_each(|w, &fh| {
+    Zip::from(&mut wallsun).and(&facesh).par_for_each(|w, &fh| {
         if (fh - 1.0).abs() < EPSILON {
             *w = 0.0
         }
@@ -150,7 +149,7 @@ fn shade_on_walls(
     Zip::from(&mut wallsh)
         .and(&walls)
         .and(&wallsun)
-        .for_each(|w, &wa, &wsu| *w = wa - wsu);
+        .par_for_each(|w, &wa, &wsu| *w = wa - wsu);
 
     // Calculate wall height shadowed by vegetation (wallshve)
     // Start with vegetation shadow volume height on walls
@@ -158,12 +157,12 @@ fn shade_on_walls(
     Zip::from(&mut wallshve)
         .and(&propagated_veg_shadow_height)
         .and(&wallbol)
-        .for_each(|w, &sv, &wb| *w = sv * wb);
+        .par_for_each(|w, &sv, &wb| *w = sv * wb);
     // Subtract building shadow height (already accounted for in wallsh)
     wallshve = &wallshve - &wallsh;
     wallshve.mapv_inplace(|v| if v < 0.0 { 0.0 } else { v }); // Cannot be negative
                                                               // Cap vegetation shadow height at total wall height
-    Zip::from(&mut wallshve).and(walls).for_each(|wsv, &w| {
+    Zip::from(&mut wallshve).and(walls).par_for_each(|wsv, &w| {
         if *wsv > w {
             *wsv = w
         }
@@ -173,7 +172,7 @@ fn shade_on_walls(
     // Correct potential negative values introduced by subtraction
     Zip::from(&mut wallshve)
         .and(&wallsun)
-        .for_each(|wsv, &wsu| {
+        .par_for_each(|wsv, &wsu| {
             if wsu < 0.0 {
                 *wsv = 0.0 // If wallsun became negative, veg shadow was overestimated
             }
@@ -353,18 +352,18 @@ pub fn shadowingfunction_wallheight_23(
         // Takes the maximum height seen so far along the sun ray path (current or shifted DSM)
         Zip::from(&mut propagated_bldg_shadow_height)
             .and(&temp_dsm_shifted)
-            .for_each(|fv, &tv| *fv = fv.max(tv));
+            .par_for_each(|fv, &tv| *fv = fv.max(tv));
         // Propagate vegetation shadow volume height (propagated_veg_shadow_height)
         // Takes the maximum height seen so far (current or shifted veg canopy)
         Zip::from(&mut propagated_veg_shadow_height)
             .and(&temp_veg_canopy_shifted)
-            .for_each(|sv, &tv| *sv = sv.max(tv));
+            .par_for_each(|sv, &tv| *sv = sv.max(tv));
         // Update building shadow map (bldg_shadow_map)
         // Pixel is in building shadow if propagated height is greater than original DSM
         Zip::from(&mut bldg_shadow_map)
             .and(&propagated_bldg_shadow_height)
             .and(&dsm_view)
-            .for_each(|s, &fv, &av| {
+            .par_for_each(|s, &fv, &av| {
                 *s = if fv > av {
                     SHADOW_FLAG_INTERMEDIATE
                 } else {
@@ -377,12 +376,12 @@ pub fn shadowingfunction_wallheight_23(
         Zip::from(&mut canopy_above_dsm)
             .and(&temp_veg_canopy_shifted)
             .and(&dsm_view)
-            .for_each(|fab, &tv, &av| *fab = if tv > av { 1.0 } else { 0.0 });
+            .par_for_each(|fab, &tv, &av| *fab = if tv > av { 1.0 } else { 0.0 });
         let mut trunk_above_dsm = Array2::<f64>::zeros(temp_veg_trunk_shifted.dim()); // Renamed from gabovea
         Zip::from(&mut trunk_above_dsm)
             .and(&temp_veg_trunk_shifted)
             .and(&dsm_view)
-            .for_each(|gab, &tv, &av| *gab = if tv > av { 1.0 } else { 0.0 });
+            .par_for_each(|gab, &tv, &av| *gab = if tv > av { 1.0 } else { 0.0 });
         // Shift vegdem/vegdem2 using the *previous* dz value (dzprev)
         if xc2 > xc1 && yc2 > yc1 && xp2 > xp1 && yp2 > yp1 {
             temp_prev_veg_canopy_shifted
@@ -397,12 +396,12 @@ pub fn shadowingfunction_wallheight_23(
         Zip::from(&mut prev_canopy_above_dsm)
             .and(&temp_prev_veg_canopy_shifted)
             .and(&dsm_view)
-            .for_each(|fab, &tv, &av| *fab = if tv > av { 1.0 } else { 0.0 });
+            .par_for_each(|fab, &tv, &av| *fab = if tv > av { 1.0 } else { 0.0 });
         let mut prev_trunk_above_dsm = Array2::<f64>::zeros(temp_prev_veg_trunk_shifted.dim()); // Renamed from lastgabovea
         Zip::from(&mut prev_trunk_above_dsm)
             .and(&temp_prev_veg_trunk_shifted)
             .and(&dsm_view)
-            .for_each(|gab, &tv, &av| *gab = if tv > av { 1.0 } else { 0.0 });
+            .par_for_each(|gab, &tv, &av| *gab = if tv > av { 1.0 } else { 0.0 });
         dzprev = dz; // Update dzprev for the next iteration
 
         // Combine current and previous step checks to detect shadow from thin layers (pergola effect)
@@ -422,11 +421,11 @@ pub fn shadowingfunction_wallheight_23(
         // Takes the maximum shadow seen so far (existing veg_shadow_map or new pergola shadow)
         Zip::from(&mut veg_shadow_map)
             .and(&pergola_shadow_map)
-            .for_each(|v, &v2| *v = f64::max(*v, v2));
+            .par_for_each(|v, &v2| *v = f64::max(*v, v2));
         // Remove vegetation shadow where building shadow already exists
         Zip::from(&mut veg_shadow_map)
             .and(&bldg_shadow_map)
-            .for_each(|v, &s| {
+            .par_for_each(|v, &s| {
                 // If both are shadow (1.0 * 1.0 > 0.0), remove veg shadow
                 if *v * s > SUNLIT_FLAG_INTERMEDIATE {
                     *v = SUNLIT_FLAG_INTERMEDIATE
@@ -494,7 +493,7 @@ pub fn shadowingfunction_wallheight_23(
         Zip::from(&mut shade_on_wall_combined)
             .and(&wallsh_)
             .and(&wallshve_)
-            .for_each(|sow, &wsh, &wsv| *sow = f64::max(wsh, wsv)); // Elementwise maximum
+            .par_for_each(|sow, &wsh, &wsv| *sow = f64::max(wsh, wsv)); // Elementwise maximum
 
         shade_on_wall_result = Some(shade_on_wall_combined);
     }
