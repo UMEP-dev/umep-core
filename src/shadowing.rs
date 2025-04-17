@@ -277,10 +277,13 @@ pub fn shadowingfunction_wallheight_23(
     let is_bush_map = bush_view.mapv(|v| if v > 1.0 { 1.0 } else { 0.0 }); // Renamed from bushplant
     let mut bldg_shadow_map = Array2::<f64>::zeros((sizex, sizey)); // Renamed from sh (1=shadow, 0=sun initially)
     let mut vbshvegsh = Array2::<f64>::zeros((sizex, sizey)); // Vegetation blocking building shadow map (Kept name)
-    let mut veg_shadow_map = is_bush_map.clone(); // Renamed from vegsh (initialised with bush presence)
-    let mut propagated_bldg_shadow_height = dsm_view.to_owned(); // Renamed from f (starts as DSM)
-    let mut propagated_veg_shadow_height = veg_canopy_dsm_view.to_owned(); // Renamed from shvoveg (starts as vegdem)
-                                                                           // Pre-calculate trigonometric values and constants for the loop
+    let mut veg_shadow_map = Array2::<f64>::zeros((sizex, sizey));
+    veg_shadow_map.assign(&is_bush_map);
+    let mut propagated_bldg_shadow_height = Array2::<f64>::zeros((sizex, sizey));
+    propagated_bldg_shadow_height.assign(&dsm_view);
+    let mut propagated_veg_shadow_height = Array2::<f64>::zeros((sizex, sizey));
+    propagated_veg_shadow_height.assign(&veg_canopy_dsm_view);
+    // Pre-calculate trigonometric values and constants for the loop
     let sinazimuth = azimuth_deg.to_radians().sin();
     let cosazimuth = azimuth_deg.to_radians().cos();
     let tanazimuth = azimuth_deg.to_radians().tan();

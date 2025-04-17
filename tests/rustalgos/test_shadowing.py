@@ -71,8 +71,8 @@ def test_shadowing_wallheight_23():
     assert np.allclose(facesun, result_rust.facesun, atol=0.001)
 
 
-# test_shadowing_wallheight_23 (10 runs): min=1.229s, max=1.361s, avg=1.292s
-# test_shadowing_wallheight_23 (10 runs): min=0.745s, max=0.825s, avg=0.776s
+# test_shadowing_wallheight_23 (10 runs): min=1.039s, max=1.107s, avg=1.070s
+# test_shadowing_wallheight_23 (10 runs): min=0.672s, max=0.710s, avg=0.689s
 
 
 def test_shadowing():
