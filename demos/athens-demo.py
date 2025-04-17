@@ -14,7 +14,7 @@ from umep import (
 #
 bbox = [476070, 4203550, 477110, 4204330]
 working_folder = "demos/data/athens"
-pixel_resolution = 1  # metres
+pixel_resolution = 0.5  # metres
 working_crs = 2100
 
 working_path = Path(working_folder).absolute()

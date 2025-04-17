@@ -40,7 +40,7 @@ def test_shadowing_wallheight_23():
 
     times_py = timeit.repeat(run_py, number=1, repeat=repeats)
     print(
-        f"test_shadowing_wallheight_23 (10 runs): min={min(times_py):.3f}s, max={max(times_py):.3f}s, avg={sum(times_py) / len(times_py):.3f}s"
+        f"test_shadowing_wallheight_23: min={min(times_py):.3f}s, max={max(times_py):.3f}s, avg={sum(times_py) / len(times_py):.3f}s"
     )
 
     def run_rust():
@@ -50,7 +50,7 @@ def test_shadowing_wallheight_23():
 
     times_rust = timeit.repeat(run_rust, number=1, repeat=repeats)
     print(
-        f"test_shadowing_wallheight_25 (10 runs): min={min(times_rust):.3f}s, max={max(times_rust):.3f}s, avg={sum(times_rust) / len(times_rust):.3f}s"
+        f"test_shadowing_wallheight_25: min={min(times_rust):.3f}s, max={max(times_rust):.3f}s, avg={sum(times_rust) / len(times_rust):.3f}s"
     )
 
     vegsh, sh, vbshvegsh, wallsh, wallsun, wallshve, facesh, facesun = shadowingfunction_wallheight_23(
@@ -97,6 +97,10 @@ def test_shadowing_wallheight_23():
 # v34
 # test_shadowing_wallheight_23 (10 runs): min=1.182s, max=1.328s, avg=1.231s
 # test_shadowing_wallheight_25 (10 runs): min=0.314s, max=0.322s, avg=0.319s
+
+# v36 - x4 resolution
+# test_shadowing_wallheight_23 (10 runs): min=4.336s, max=4.695s, avg=4.530s
+# test_shadowing_wallheight_25 (10 runs): min=1.131s, max=1.225s, avg=1.164s
 
 
 def test_shadowing():
