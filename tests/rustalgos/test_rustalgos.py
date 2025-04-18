@@ -8,13 +8,14 @@ from umep.util.SEBESOLWEIGCommonFiles.shadowingfunction_wallheight_23 import sha
 
 
 def make_test_arrays(
-    dsm_path="demos/data/athens/DSM.tif",
-    veg_dsm_path="demos/data/athens/CDSM.tif",
-    wall_hts_path="demos/data/athens/walls/wall_hts.tif",
-    wall_aspect_path="demos/data/athens/walls/wall_aspects.tif",
+    resolution,
+    dsm_path="demos/data/athens/DSM_{res}m.tif",
+    veg_dsm_path="demos/data/athens/CDSM_{res}m.tif",
+    wall_hts_path="demos/data/athens/walls_{res}m/wall_hts.tif",
+    wall_aspect_path="demos/data/athens/walls_{res}m/wall_aspects.tif",
 ):
-    dsm, dsm_transf, _crs = common.load_raster(dsm_path, bbox=None)
-    vegdsm, _transf, _crs = common.load_raster(veg_dsm_path, bbox=None)
+    dsm, dsm_transf, _crs = common.load_raster(dsm_path.format(res=resolution), bbox=None)
+    vegdsm, _transf, _crs = common.load_raster(veg_dsm_path.format(res=resolution), bbox=None)
     vegdsm2 = np.zeros(dsm.shape)
     azi = 45.0
     alt = 30.0
@@ -23,8 +24,8 @@ def make_test_arrays(
     amaxvalue = dsm.max() - dsm.min()
     amaxvalue = np.maximum(amaxvalue, vegmax)
     bush = np.zeros(dsm.shape)
-    wall_hts, _transf, _crs = common.load_raster(wall_hts_path, bbox=None)
-    wall_asp, _transf, _crs = common.load_raster(wall_aspect_path, bbox=None)
+    wall_hts, _transf, _crs = common.load_raster(wall_hts_path.format(res=resolution), bbox=None)
+    wall_asp, _transf, _crs = common.load_raster(wall_aspect_path.format(res=resolution), bbox=None)
 
     return dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp
 
@@ -32,7 +33,7 @@ def make_test_arrays(
 def test_shadowing():
     repeats = 3
 
-    dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp = make_test_arrays()
+    dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp = make_test_arrays(resolution=1)
 
     def run_py():
         shadowingfunction_wallheight_23(
@@ -76,15 +77,15 @@ def test_shadowing():
     print(f"facesun right: {pct(facesun, result_rust.facesun):.1f}%")
 
 
-# v38
-# test_shadowing_wallheight_23: min=1.269s, max=1.574s, avg=1.379s
-# test_shadowing_wallheight_25: min=0.338s, max=0.348s, avg=0.343s
+# v40
+# test_shadowing_wallheight_23: min=1.150s, max=1.518s, avg=1.339s
+# test_shadowing_wallheight_25: min=0.323s, max=0.351s, avg=0.333s
 
 
 def test_svf():
     repeats = 1
 
-    dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp = make_test_arrays()
+    dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp = make_test_arrays(resolution=2)
 
     def run_py():
         svfForProcessing153(dsm, vegdsm, vegdsm2, scale, 1)
@@ -120,6 +121,6 @@ def test_svf():
     print(f"facesun right: {pct(facesun, result_rust.facesun):.1f}%")
 
 
-# v38
-# svfForProcessing153: min=304.075s, max=304.075s, avg=304.075s
-# calculate_svf_153: min=13.345s, max=13.345s, avg=13.345s
+# v40
+# svfForProcessing153: min=33.068s, max=33.068s, avg=33.068s
+# calculate_svf_153: min=13.082s, max=13.082s, avg=13.082s

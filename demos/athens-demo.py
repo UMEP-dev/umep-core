@@ -14,7 +14,7 @@ from umep import (
 #
 bbox = [476070, 4203550, 477110, 4204330]
 working_folder = "demos/data/athens"
-pixel_resolution = 1  # metres
+pixel_res = 1  # metres
 working_crs = 2100
 
 working_path = Path(working_folder).absolute()
@@ -33,7 +33,7 @@ tree_canopies_path = "demos/data/athens/tree_canopies_clip.gpkg"
 # this saves unnecessary repetition
 # if wanting to repeat, then delete (or rename) the folders / files
 # same idea for remaining cells
-if not Path.exists(working_path / "DSM.tif") or not Path.exists(working_path / "CDSM.tif"):
+if not Path.exists(working_path / f"DSM_{pixel_res}m.tif") or not Path.exists(working_path / f"CDSM_{pixel_res}m.tif"):
     # buildings
     bldgs_gdf = gpd.read_file(bldgs_path)
     bldgs_gdf = bldgs_gdf.to_crs(working_crs)
@@ -43,10 +43,10 @@ if not Path.exists(working_path / "DSM.tif") or not Path.exists(working_path / "
         "geometry",
         "Height",
         bbox=bbox,
-        pixel_size=pixel_resolution,
+        pixel_size=pixel_res,
     )
     # save to geotiff
-    common.save_raster(working_path_str + "/DSM.tif", bldgs_rast, bldgs_transf, bldgs_gdf.crs)
+    common.save_raster(working_path_str + f"/DSM_{pixel_res}m.tif", bldgs_rast, bldgs_transf, bldgs_gdf.crs)
     # GDF1 trees - load and buffer by diameter
     trees_gdf = gpd.read_file(trees_path)
     trees_gdf = trees_gdf.to_crs(working_crs)
@@ -70,50 +70,50 @@ if not Path.exists(working_path / "DSM.tif") or not Path.exists(working_path / "
         "geometry",
         "ht",
         bbox=bbox,
-        pixel_size=pixel_resolution,
+        pixel_size=pixel_res,
     )
     # flatten canopy raster where overlapping buildings
     veg_rast[bldgs_rast > 0] = 0
     # save
-    common.save_raster(working_path_str + "/CDSM.tif", veg_rast, veg_transf, trees_gdf.crs)
+    common.save_raster(working_path_str + f"/CDSM_{pixel_res}m.tif", veg_rast, veg_transf, trees_gdf.crs)
 
 # %%
 # wall info for SOLWEIG
-if not Path.exists(working_path / "walls"):
+if not Path.exists(working_path / f"walls_{pixel_res}m"):
     wall_heightaspect_algorithm.generate_wall_hts(
-        dsm_path=working_path_str + "/DSM.tif",
+        dsm_path=working_path_str + f"/DSM_{pixel_res}m.tif",
         bbox=bbox,
-        out_dir=working_path_str + "/walls",
+        out_dir=working_path_str + f"/walls_{pixel_res}m",
     )
 
 # %%
 # shadows (not required for SOLWEIG)
 for shadow_date_Ymd in ["2024-03-21"]:
-    shadow_dir_name = f"shadow_{shadow_date_Ymd}"
+    shadow_dir_name = f"shadow_{shadow_date_Ymd}_{pixel_res}m"
     if not Path.exists(working_path / shadow_dir_name):
         shadow_generator_algorithm.generate_shadows(
-            dsm_path=working_path_str + "/DSM.tif",
+            dsm_path=working_path_str + f"/DSM_{pixel_res}m.tif",
             # target date to caculate shadows for
             shadow_date_Ymd=shadow_date_Ymd,  # %Y-%m-%d"
-            wall_ht_path=working_path_str + "/walls/wall_hts.tif",
-            wall_aspect_path=working_path_str + "/walls/wall_aspects.tif",
+            wall_ht_path=working_path_str + f"/walls_{pixel_res}m/wall_hts.tif",
+            wall_aspect_path=working_path_str + f"/walls_{pixel_res}m/wall_aspects.tif",
             bbox=bbox,
             out_dir=working_path_str + "/" + shadow_dir_name,
             # if wanting a specific time then specify below
             # otherwise computed for intervals
             shadow_time_HM=None,  # "%H:%M"
             time_interval_M=30,  # interval in minutes - if not computing specific time
-            veg_dsm_path=working_path_str + "/CDSM.tif",
+            veg_dsm_path=working_path_str + f"/CDSM_{pixel_res}m.tif",
         )
 
 # %%
 # skyview factor for SOLWEIG
-if not Path.exists(working_path / "svf"):
+if not Path.exists(working_path / f"svf_{pixel_res}m"):
     skyviewfactor_algorithm.generate_svf(
-        dsm_path=working_path_str + "/DSM.tif",
+        dsm_path=working_path_str + f"/DSM_{pixel_res}m.tif",
         bbox=bbox,
         out_dir=working_path_str + "/svf",
-        cdsm_path=working_path_str + "/CDSM.tif",
+        cdsm_path=working_path_str + f"/CDSM_{pixel_res}m.tif",
         trans_veg=5,
     )
 
@@ -132,9 +132,9 @@ for epw_path, solweig_dir_name, start_date_Ymd, end_date_Ymd in [
     if not Path.exists(working_path / solweig_dir_name):
         # run algorithm - requires paths to files calculated in previous steps
         solweig_algorithm.generate_solweig(
-            dsm_path=working_path_str + "/DSM.tif",
-            wall_ht_path=working_path_str + "/walls/wall_hts.tif",
-            wall_aspect_path=working_path_str + "/walls/wall_aspects.tif",
+            dsm_path=working_path_str + f"/DSM_{pixel_res}m.tif",
+            wall_ht_path=working_path_str + f"/walls/wall_hts_{pixel_res}m.tif",
+            wall_aspect_path=working_path_str + f"/walls/wall_aspects_{pixel_res}m.tif",
             svf_path=working_path_str + "/svf/svfs.zip",
             # the EPW file
             epw_path=epw_path,
@@ -148,7 +148,7 @@ for epw_path, solweig_dir_name, start_date_Ymd, end_date_Ymd in [
             # hours to run
             hours=[7, 11, 15, 19],
             # canopy DSM
-            veg_dsm_path=working_path_str + "/CDSM.tif",
+            veg_dsm_path=working_path_str + f"/CDSM_{pixel_res}m.tif",
             # optional POIs GDF
             pois_gdf=pois_gdf,
             trans_veg=5,
