@@ -53,6 +53,17 @@ pub struct ShadowingResult {
     pub shade_on_wall: Option<Py<PyArray2<f64>>>,
 }
 
+// Helper function to safely get values from ArrayView2, handling out-of-bounds
+#[inline]
+fn get_view_value(view: &ArrayView2<f64>, r: isize, c: isize, rows: usize, cols: usize) -> f64 {
+    if r >= 0 && r < rows as isize && c >= 0 && c < cols as isize {
+        // Safety: Bounds check performed above
+        unsafe { *view.uget([r as usize, c as usize]) }
+    } else {
+        0.0 // Return 0.0 for out-of-bounds access, mimicking shift behavior
+    }
+}
+
 /// Internal Rust function for shadow calculations.
 /// Operates purely on ndarray types.
 #[allow(clippy::too_many_arguments)] // Keep arguments for clarity
@@ -74,23 +85,21 @@ pub(crate) fn calculate_shadows_rust(
     let sizex = shape[0];
     let sizey = shape[1];
 
-    let clamp =
-        |v: f64, min: usize, max: usize| -> usize { v.max(min as f64).min(max as f64) as usize };
-
     let mut dx: f64 = 0.0;
     let mut dy: f64 = 0.0;
     let mut dz: f64 = 0.0;
+    let mut ds: f64 = 0.0; // Declare ds here
+    let mut prev_dx: f64 = 0.0; // Store previous offsets
+    let mut prev_dy: f64 = 0.0;
     let mut prev_dz: f64 = 0.0;
-    let mut temp_dsm_shifted = Array2::<f64>::zeros((sizex, sizey));
-    let mut temp_veg_canopy_shifted = Array2::<f64>::zeros((sizex, sizey));
-    let mut temp_veg_trunk_shifted = Array2::<f64>::zeros((sizex, sizey));
-    let mut temp_prev_veg_canopy_shifted = Array2::<f64>::zeros((sizex, sizey));
-    let mut temp_prev_veg_trunk_shifted = Array2::<f64>::zeros((sizex, sizey));
+
+    // Bush mask threshold should match Python: bushplant = bush > 1
     let is_bush_map = bush_view.mapv(|v| if v > 1.0 { 1.0 } else { 0.0 });
     let mut bldg_shadow_map = Array2::<f64>::zeros((sizex, sizey));
     let mut vbshvegsh = Array2::<f64>::zeros((sizex, sizey));
-    let mut veg_shadow_map = Array2::<f64>::zeros((sizex, sizey));
-    veg_shadow_map.assign(&is_bush_map);
+    // Initialize veg_shadow_map with bush locations
+    let mut veg_shadow_map = is_bush_map;
+
     let mut propagated_bldg_shadow_height = Array2::<f64>::zeros((sizex, sizey));
     propagated_bldg_shadow_height.assign(&dsm_view);
     let mut propagated_veg_shadow_height = Array2::<f64>::zeros((sizex, sizey));
@@ -109,118 +118,147 @@ pub(crate) fn calculate_shadows_rust(
     let mut index = 0.0;
 
     while amaxvalue >= dz && dx.abs() < sizex as f64 && dy.abs() < sizey as f64 {
+        // Calculate offsets dx, dy, dz based on index and sun angles
         if (PI_OVER_4 <= azimuth_rad && azimuth_rad < THREE_PI_OVER_4)
             || (FIVE_PI_OVER_4 <= azimuth_rad && azimuth_rad < SEVEN_PI_OVER_4)
         {
             dy = signsinazimuth * index;
             dx = -1.0 * signcosazimuth * (index / tanazimuth).round().abs();
+            ds = dssin;
         } else {
             dy = signsinazimuth * (index * tanazimuth).round().abs();
             dx = -1.0 * signcosazimuth * index;
+            ds = dscos;
         }
-        let ds = if (PI_OVER_4 <= azimuth_rad && azimuth_rad < THREE_PI_OVER_4)
-            || (FIVE_PI_OVER_4 <= azimuth_rad && azimuth_rad < SEVEN_PI_OVER_4)
-        {
-            dssin
-        } else {
-            dscos
-        };
         dz = (ds * index) * tanaltitudebyscale;
 
-        temp_dsm_shifted.fill(0.0);
-        temp_veg_canopy_shifted.fill(0.0);
-        temp_veg_trunk_shifted.fill(0.0);
-        temp_prev_veg_canopy_shifted.fill(0.0);
-        temp_prev_veg_trunk_shifted.fill(0.0);
+        // --- Update propagated heights and shadow maps directly ---
+        Zip::indexed(&mut propagated_bldg_shadow_height) // 1 (Indices)
+            .and(&mut propagated_veg_shadow_height) // 2
+            .and(&mut bldg_shadow_map) // 3
+            .and(&mut veg_shadow_map) // 4
+            // Removed .and(&dsm_view) - Now 5 items total
+            .par_for_each(
+                |(tx, ty), // Index from indexed()
+                 prop_bldg_h,
+                 prop_veg_h,
+                 bldg_sh_flag,
+                 veg_sh_flag| {
+                    // Get target DSM height using the index
+                    let dsm_h_target = dsm_view[[tx, ty]];
 
-        let xc1 = clamp((dx + dx.abs()) / 2.0, 0, sizex);
-        let xc2 = clamp(sizex as f64 + (dx - dx.abs()) / 2.0, 0, sizex);
-        let yc1 = clamp((dy + dy.abs()) / 2.0, 0, sizey);
-        let yc2 = clamp(sizey as f64 + (dy - dy.abs()) / 2.0, 0, sizey);
-        let xp1 = clamp(-(dx - dx.abs()) / 2.0, 0, sizex);
-        let xp2 = clamp(sizex as f64 - (dx + dx.abs()) / 2.0, 0, sizex);
-        let yp1 = clamp(-(dy - dy.abs()) / 2.0, 0, sizey);
-        let yp2 = clamp(sizey as f64 - (dy + dy.abs()) / 2.0, 0, sizey);
+                    // Calculate source coordinates (integer for indexing)
+                    // Apply offset consistent with the working slice logic (target + offset)
+                    let sx_i = (tx as f64 + dx).round() as isize; // Changed -dx to +dx
+                    let sy_i = (ty as f64 + dy).round() as isize; // Changed -dy to +dy
+                    let prev_sx_i = (tx as f64 + prev_dx).round() as isize; // Changed -prev_dx to +prev_dx
+                    let prev_sy_i = (ty as f64 + prev_dy).round() as isize; // Changed -prev_dy to +prev_dy
 
-        if xc2 > xc1 && yc2 > yc1 && xp2 > xp1 && yp2 > yp1 {
-            Zip::from(temp_veg_canopy_shifted.slice_mut(s![xp1..xp2, yp1..yp2]))
-                .and(veg_canopy_dsm_view.slice(s![xc1..xc2, yc1..yc2]))
-                .par_for_each(|target, &source| *target = source - dz);
-            Zip::from(temp_veg_trunk_shifted.slice_mut(s![xp1..xp2, yp1..yp2]))
-                .and(veg_trunk_dsm_view.slice(s![xc1..xc2, yc1..yc2]))
-                .par_for_each(|target, &source| *target = source - dz);
-            Zip::from(temp_dsm_shifted.slice_mut(s![xp1..xp2, yp1..yp2]))
-                .and(dsm_view.slice(s![xc1..xc2, yc1..yc2]))
-                .par_for_each(|target, &source| *target = source - dz);
-            Zip::from(temp_prev_veg_canopy_shifted.slice_mut(s![xp1..xp2, yp1..yp2]))
-                .and(veg_canopy_dsm_view.slice(s![xc1..xc2, yc1..yc2]))
-                .par_for_each(|target, &source| *target = source - prev_dz);
-            Zip::from(temp_prev_veg_trunk_shifted.slice_mut(s![xp1..xp2, yp1..yp2]))
-                .and(veg_trunk_dsm_view.slice(s![xc1..xc2, yc1..yc2]))
-                .par_for_each(|target, &source| *target = source - prev_dz);
-        }
+                    // Fetch source values safely using helper function
+                    let source_dsm = get_view_value(&dsm_view, sx_i, sy_i, sizex, sizey);
+                    let source_veg_canopy =
+                        get_view_value(&veg_canopy_dsm_view, sx_i, sy_i, sizex, sizey);
+                    let source_veg_trunk =
+                        get_view_value(&veg_trunk_dsm_view, sx_i, sy_i, sizex, sizey);
+                    let prev_source_veg_canopy =
+                        get_view_value(&veg_canopy_dsm_view, prev_sx_i, prev_sy_i, sizex, sizey);
+                    let prev_source_veg_trunk =
+                        get_view_value(&veg_trunk_dsm_view, prev_sx_i, prev_sy_i, sizex, sizey);
 
-        Zip::from(&mut propagated_bldg_shadow_height)
-            .and(&temp_dsm_shifted)
-            .par_for_each(|prop_h, &shifted_h| *prop_h = prop_h.max(shifted_h));
-        Zip::from(&mut propagated_veg_shadow_height)
-            .and(&temp_veg_canopy_shifted)
-            .par_for_each(|prop_veg_h, &shifted_veg_h| *prop_veg_h = prop_veg_h.max(shifted_veg_h));
+                    // Calculate shifted heights for the current target pixel
+                    let shifted_dsm = source_dsm - dz;
+                    let shifted_veg_canopy = source_veg_canopy - dz;
+                    let shifted_veg_trunk = source_veg_trunk - dz;
+                    let prev_shifted_veg_canopy = prev_source_veg_canopy - prev_dz;
+                    let prev_shifted_veg_trunk = prev_source_veg_trunk - prev_dz;
 
-        Zip::from(&mut bldg_shadow_map)
-            .and(&propagated_bldg_shadow_height)
-            .and(&dsm_view)
-            .par_for_each(|sh_flag, &prop_h, &dsm_h| {
-                *sh_flag = if prop_h > dsm_h {
-                    SHADOW_FLAG_INTERMEDIATE
-                } else {
-                    SUNLIT_FLAG_INTERMEDIATE
+                    // Update propagated building height
+                    *prop_bldg_h = prop_bldg_h.max(shifted_dsm);
+
+                    // Update propagated veg height
+                    *prop_veg_h = prop_veg_h.max(shifted_veg_canopy);
+
+                    // Update building shadow flag (based on updated propagated height at target)
+                    *bldg_sh_flag = if *prop_bldg_h > dsm_h_target + EPSILON {
+                        // Add epsilon for float comparison
+                        SHADOW_FLAG_INTERMEDIATE
+                    } else {
+                        SUNLIT_FLAG_INTERMEDIATE
+                    };
+
+                    // Update veg shadow flag (Pergola logic)
+                    // Compare shifted heights with target DSM height
+                    let cond1 = if shifted_veg_canopy > dsm_h_target + EPSILON {
+                        1.0
+                    } else {
+                        0.0
+                    };
+                    let cond2 = if shifted_veg_trunk > dsm_h_target + EPSILON {
+                        1.0
+                    } else {
+                        0.0
+                    };
+                    let cond3 = if prev_shifted_veg_canopy > dsm_h_target + EPSILON {
+                        1.0
+                    } else {
+                        0.0
+                    };
+                    let cond4 = if prev_shifted_veg_trunk > dsm_h_target + EPSILON {
+                        1.0
+                    } else {
+                        0.0
+                    };
+                    let conditions_sum = cond1 + cond2 + cond3 + cond4;
+
+                    let pergola_shadow = if conditions_sum > SUNLIT_FLAG_INTERMEDIATE
+                        && conditions_sum < PERGOLA_SOLID_THRESHOLD
+                    {
+                        SHADOW_FLAG_INTERMEDIATE
+                    } else {
+                        SUNLIT_FLAG_INTERMEDIATE
+                    };
+                    // Update main veg shadow flag (accumulates)
+                    *veg_sh_flag = f64::max(*veg_sh_flag, pergola_shadow);
+                },
+            );
+
+        // --- End of combined update ---
+
+        // Accumulate vbshvegsh BEFORE clearing veg_shadow_map (like shadowing_old.rs)
+        // Use veg_shadow_map which holds the max accumulated shadow flag up to this point.
+        Zip::from(&mut vbshvegsh)
+            .and(&veg_shadow_map) // Accumulate from the main veg_shadow_map
+            .par_for_each(|vbs_acc, &v_sh_flag| {
+                // Use the flag from veg_shadow_map
+                if v_sh_flag > 0.0 {
+                    // Check against 0.0 (consistent with old logic's implicit check)
+                    *vbs_acc += v_sh_flag; // Accumulate the potentially persistent flag
                 }
             });
 
-        Zip::from(&mut veg_shadow_map)
-            .and(&temp_veg_canopy_shifted)
-            .and(&temp_veg_trunk_shifted)
-            .and(&temp_prev_veg_canopy_shifted)
-            .and(&temp_prev_veg_trunk_shifted)
-            .and(&dsm_view)
-            .par_for_each(|v_sh_flag, &tvc_s, &tvt_s, &tpvc_s, &tpvt_s, &dsm_val| {
-                let cond1 = if tvc_s > dsm_val { 1.0 } else { 0.0 };
-                let cond2 = if tvt_s > dsm_val { 1.0 } else { 0.0 };
-                let cond3 = if tpvc_s > dsm_val { 1.0 } else { 0.0 };
-                let cond4 = if tpvt_s > dsm_val { 1.0 } else { 0.0 };
-                let conditions_sum = cond1 + cond2 + cond3 + cond4;
-                let pergola_shadow = if conditions_sum > SUNLIT_FLAG_INTERMEDIATE
-                    && conditions_sum < PERGOLA_SOLID_THRESHOLD
-                {
-                    SHADOW_FLAG_INTERMEDIATE
-                } else {
-                    SUNLIT_FLAG_INTERMEDIATE
-                };
-                *v_sh_flag = f64::max(*v_sh_flag, pergola_shadow);
-            });
-
-        prev_dz = dz;
-
+        // Clear veg_shadow_map where building shadow exists (must match Python order)
         Zip::from(&mut veg_shadow_map)
             .and(&bldg_shadow_map)
             .par_for_each(|v_sh_flag, &b_sh_flag| {
-                if *v_sh_flag > SUNLIT_FLAG_INTERMEDIATE && b_sh_flag > SUNLIT_FLAG_INTERMEDIATE {
-                    *v_sh_flag = SUNLIT_FLAG_INTERMEDIATE
+                if *v_sh_flag > 0.0 && b_sh_flag > 0.0 {
+                    *v_sh_flag = 0.0;
                 }
             });
 
-        Zip::from(&mut vbshvegsh)
-            .and(&veg_shadow_map)
-            .par_for_each(|vbs_acc, &v_sh_flag| *vbs_acc += v_sh_flag);
+        prev_dx = dx;
+        prev_dy = dy;
+        prev_dz = dz;
 
         index += 1.0;
-    }
+    } // End of while loop
 
+    // --- Final processing of shadow maps ---
     bldg_shadow_map.par_mapv_inplace(|v| FINAL_SUNLIT_VALUE - v);
+
     vbshvegsh.par_mapv_inplace(|v| if v > 0.0 { 1.0 } else { 0.0 });
     vbshvegsh = &vbshvegsh - &veg_shadow_map.mapv(|v| if v > 0.0 { 1.0 } else { 0.0 });
     vbshvegsh.par_mapv_inplace(|v| 1.0 - v.max(0.0));
+
     veg_shadow_map.par_mapv_inplace(|v| {
         if v > 0.0 {
             SHADOW_FLAG_INTERMEDIATE
