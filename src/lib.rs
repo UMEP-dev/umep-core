@@ -1,6 +1,7 @@
 use pyo3::prelude::*;
 
 mod shadowing;
+mod skyview;
 
 #[pymodule]
 fn rustalgos(py_module: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -10,6 +11,7 @@ fn rustalgos(py_module: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Register submodules
     register_shadowing_module(py_module)?;
+    register_skyview_module(py_module)?; // Register the new skyview module
     py_module.add("__doc__", "UMEP algorithms implemented in Rust.")?;
 
     Ok(())
@@ -18,11 +20,20 @@ fn rustalgos(py_module: &Bound<'_, PyModule>) -> PyResult<()> {
 fn register_shadowing_module(py_module: &Bound<'_, PyModule>) -> PyResult<()> {
     let submodule = PyModule::new(py_module.py(), "shadowing")?;
     submodule.add("__doc__", "Shadow analysis.")?;
-    // submodule.add_class::<data::DataEntry>()?;
+    submodule.add_class::<shadowing::ShadowingResult>()?;
     submodule.add_function(wrap_pyfunction!(
         shadowing::shadowingfunction_wallheight_25,
         &submodule
     )?)?;
+    py_module.add_submodule(&submodule)?;
+    Ok(())
+}
+
+fn register_skyview_module(py_module: &Bound<'_, PyModule>) -> PyResult<()> {
+    let submodule = PyModule::new(py_module.py(), "skyview")?;
+    submodule.add("__doc__", "Sky View Factor calculation.")?;
+    submodule.add_class::<skyview::SvfResult>()?;
+    submodule.add_function(wrap_pyfunction!(skyview::calculate_svf_153, &submodule)?)?;
     py_module.add_submodule(&submodule)?;
     Ok(())
 }
