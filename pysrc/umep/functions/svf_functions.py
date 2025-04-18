@@ -1,6 +1,5 @@
 import numpy as np
 from tqdm import tqdm
-
 from umep.util import shadowingfunctions as shadow
 from umep.util.SEBESOLWEIGCommonFiles.create_patches import create_patches
 
@@ -9,11 +8,7 @@ def annulus_weight(altitude, aziinterval):
     n = 90.0
     steprad = (360.0 / aziinterval) * (np.pi / 180.0)
     annulus = 91.0 - altitude
-    w = (
-        (1.0 / (2.0 * np.pi))
-        * np.sin(np.pi / (2.0 * n))
-        * np.sin((np.pi * (2.0 * annulus - 1.0)) / (2.0 * n))
-    )
+    w = (1.0 / (2.0 * np.pi)) * np.sin(np.pi / (2.0 * n)) * np.sin((np.pi * (2.0 * annulus - 1.0)) / (2.0 * n))
     weight = steprad * w
 
     return weight
@@ -55,9 +50,9 @@ def svfForProcessing153(dsm, vegdem, vegdem2, scale, usevegdem):
     vegdem2[vegdem2 == dsm] = 0
 
     # % Bush separation
-    bush = np.logical_not((vegdem2 * vegdem)) * vegdem
+    bush = np.logical_not(vegdem2 * vegdem) * vegdem
 
-    index = int(0)
+    index = 0
 
     # patch_option = 1 # 145 patches
     patch_option = 2  # 153 patches
@@ -98,7 +93,7 @@ def svfForProcessing153(dsm, vegdem, vegdem2, scale, usevegdem):
     progress = tqdm(total=total)
     #
     aziintervalaniso = np.ceil(aziinterval / 2.0)
-    index = int(0)
+    index = 0
     for i in range(0, skyvaultaltint.shape[0]):
         for j in np.arange(0, aziinterval[int(i)]):
             altitude = skyvaultaltint[int(i)]
@@ -124,9 +119,7 @@ def svfForProcessing153(dsm, vegdem, vegdem2, scale, usevegdem):
                 vegshmat[:, :, index] = vegsh
                 vbshvegshmat[:, :, index] = vbshvegsh
             else:
-                sh = shadow.shadowingfunctionglobalradiation(
-                    dsm, azimuth, altitude, scale, 1
-                )
+                sh = shadow.shadowingfunctionglobalradiation(dsm, azimuth, altitude, scale, 1)
             shmat[:, :, index] = sh
 
             # Calculate svfs

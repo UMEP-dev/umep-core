@@ -90,12 +90,13 @@ def generate_svf(
             raise ValueError("Mismatching spatial transform for DSM and CDSM.")
 
     # CDSM 2
-    # cdsm_2_rast = np.zeros([rows, cols])
-
-    # trunk_ratio = trunk_ratio / 100.0
     cdsm_2_rast = cdsm_rast * trunk_ratio  # issue8
     # compute
-    ret = skyview.calculate_svf_153(dsm_rast, cdsm_rast, cdsm_2_rast, dsm_scale, use_cdsm)
+    # Ensure arrays are float32 before passing to Rust
+    dsm_rast_f32 = dsm_rast.astype(np.float32)
+    cdsm_rast_f32 = cdsm_rast.astype(np.float32)
+    cdsm_2_rast_f32 = cdsm_2_rast.astype(np.float32)
+    ret = skyview.calculate_svf_153(dsm_rast_f32, cdsm_rast_f32, cdsm_2_rast_f32, dsm_scale, use_cdsm)
 
     # Access results using attributes instead of dictionary keys
     svfbu = ret.svf
@@ -130,9 +131,7 @@ def generate_svf(
     os.remove(out_path_str + "/" + "svfW.tif")
     os.remove(out_path_str + "/" + "svfN.tif")
 
-    if use_cdsm == 0:
-        svftotal = svfbu
-    else:
+    if use_cdsm:  # Changed from use_cdsm == 0 to boolean check
         # Report the vegetation-related results using attribute access
         svfveg = ret.svf_veg
         svfEveg = ret.svf_veg_east
@@ -184,10 +183,12 @@ def generate_svf(
 
         # Calculate final total SVF
         svftotal = svfbu - (1 - svfveg) * (1 - trans)
+    else:
+        svftotal = svfbu
 
     # Save the final svftotal raster
     common.save_raster(out_path_str + "/" + "svf_total.tif", svftotal, dsm_transf, dsm_crs)
-
+    """
     # Save shadow matrices as compressed npz using attribute access
     shmat = ret.shadow_matrix
     vegshmat = ret.veg_shadow_matrix
@@ -199,3 +200,4 @@ def generate_svf(
         vegshadowmat=vegshmat,
         vbshmat=vbshvegshmat,
     )
+    """

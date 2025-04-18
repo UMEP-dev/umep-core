@@ -16,16 +16,22 @@ def make_test_arrays(
 ):
     dsm, dsm_transf, _crs = common.load_raster(dsm_path.format(res=resolution), bbox=None)
     vegdsm, _transf, _crs = common.load_raster(veg_dsm_path.format(res=resolution), bbox=None)
-    vegdsm2 = np.zeros(dsm.shape)
+    vegdsm2 = np.zeros(dsm.shape, dtype=np.float32)  # Ensure float32
     azi = 45.0
     alt = 30.0
     scale = 1 / dsm_transf.a
     vegmax = vegdsm.max()
     amaxvalue = dsm.max() - dsm.min()
     amaxvalue = np.maximum(amaxvalue, vegmax)
-    bush = np.zeros(dsm.shape)
+    bush = np.zeros(dsm.shape, dtype=np.float32)  # Ensure float32
     wall_hts, _transf, _crs = common.load_raster(wall_hts_path.format(res=resolution), bbox=None)
     wall_asp, _transf, _crs = common.load_raster(wall_aspect_path.format(res=resolution), bbox=None)
+
+    # Convert all loaded arrays to float32
+    dsm = dsm.astype(np.float32)
+    vegdsm = vegdsm.astype(np.float32)
+    wall_hts = wall_hts.astype(np.float32)
+    wall_asp = wall_asp.astype(np.float32)
 
     return dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp
 
@@ -77,7 +83,6 @@ def test_shadowing():
     print(
         f"test_shadowing_wallheight_25: min={min(times_rust):.3f}s, max={max(times_rust):.3f}s, avg={sum(times_rust) / len(times_rust):.3f}s"
     )
-
     vegsh, sh, vbshvegsh, wallsh, wallsun, wallshve, facesh, facesun = shadowingfunction_wallheight_23(
         dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0
     )
@@ -108,9 +113,21 @@ def test_shadowing():
     compare_svf_results(result_py, result_rust, key_map, atol=0.1)
 
 
-# v40
-# test_shadowing_wallheight_23: min=1.150s, max=1.518s, avg=1.339s
-# test_shadowing_wallheight_25: min=0.323s, max=0.351s, avg=0.333s
+"""
+v69 f32 change
+test_shadowing_wallheight_23: min=1.225s, max=1.425s, avg=1.313s
+test_shadowing_wallheight_25: min=0.107s, max=0.125s, avg=0.115s
+
+--- SVF Comparison ---
+veg_shadow_map  vs veg_shadow_map       right: 99.73175542406311 mean diff: 0.003
+bldg_shadow_map vs bldg_shadow_map      right: 100.0 mean diff: 0.000
+vbshvegsh       vs vbshvegsh            right: 99.59196252465483 mean diff: 0.004
+wallsh          vs wallsh               right: 100.0 mean diff: 0.000
+wallsun         vs wallsun              right: 100.0 mean diff: 0.000
+wallshve        vs wallshve             right: 100.0 mean diff: 0.000
+facesh          vs facesh               right: 100.0 mean diff: 0.000
+facesun         vs facesun              right: 100.0 mean diff: 0.000
+"""
 
 
 def test_svf():
@@ -134,7 +151,9 @@ def test_svf():
         f"calculate_svf_153: min={min(times_rust):.3f}s, max={max(times_rust):.3f}s, avg={sum(times_rust) / len(times_rust):.3f}s"
     )
 
+    # Run Python version with float64
     result_py = svfForProcessing153(dsm, vegdsm, vegdsm2, scale, 1)
+    # Run Rust version with float32
     result_rust = skyview.calculate_svf_153(dsm, vegdsm, vegdsm2, scale, True)
 
     # Map Python keys to Rust attribute names
@@ -162,14 +181,33 @@ def test_svf():
     compare_svf_results(result_py, result_rust, key_map, atol=0.1)
 
 
-# v40
-# svfForProcessing153: min=33.068s, max=33.068s, avg=33.068s
-# calculate_svf_153: min=13.082s, max=13.082s, avg=13.082s
-
-# v41
-# svfForProcessing153: min=33.686s, max=33.686s, avg=33.686s
-# calculate_svf_153: min=11.272s, max=11.272s, avg=11.272s
-
+"""
 # v43
 # svfForProcessing153: min=34.552s, max=34.552s, avg=34.552s
 # calculate_svf_153: min=10.588s, max=10.588s, avg=10.588s
+
+v69 f32 change
+
+svfForProcessing153: min=34.866s, max=34.866s, avg=34.866s
+calculate_svf_153: min=1.851s, max=1.851s, avg=1.851s
+
+--- SVF Comparison ---
+svf             vs svf                  right: 99.98076923076923 mean diff: 0.030
+svfE            vs svf_east             right: 99.61834319526628 mean diff: 0.034
+svfS            vs svf_south            right: 94.60996055226825 mean diff: 0.039
+svfW            vs svf_west             right: 87.69970414201184 mean diff: 0.058
+svfN            vs svf_north            right: 98.4354043392505 mean diff: 0.029
+svfveg          vs svf_veg              right: 98.36390532544378 mean diff: 0.044
+svfEveg         vs svf_veg_east         right: 96.99802761341223 mean diff: 0.045
+svfSveg         vs svf_veg_south        right: 95.95660749506904 mean diff: 0.022
+svfWveg         vs svf_veg_west         right: 94.6198224852071 mean diff: 0.043
+svfNveg         vs svf_veg_north        right: 96.37721893491124 mean diff: 0.027
+svfaveg         vs svf_aniso_veg        right: 98.5103550295858 mean diff: 0.041
+svfEaveg        vs svf_aniso_veg_east   right: 97.79339250493096 mean diff: 0.043
+svfSaveg        vs svf_aniso_veg_south  right: 95.02810650887574 mean diff: 0.025
+svfWaveg        vs svf_aniso_veg_west   right: 92.61193293885601 mean diff: 0.047
+svfNaveg        vs svf_aniso_veg_north  right: 97.0645956607495 mean diff: 0.026
+shmat           vs shadow_matrix        right: N/A mean diff: nan
+vegshmat        vs veg_shadow_matrix    right: N/A mean diff: nan
+vbshvegshmat    vs vbshvegsh_matrix     right: N/A mean diff: nan
+"""

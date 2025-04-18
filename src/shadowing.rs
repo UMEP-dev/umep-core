@@ -1,61 +1,61 @@
-use ndarray::{s, Array2, ArrayView2, Zip};
+use ndarray::{Array2, ArrayView2, Zip};
 use numpy::{IntoPyArray, PyArray2, PyReadonlyArray2};
 use pyo3::prelude::*;
 use pyo3::IntoPyObject;
 
 // Constants
-const SHADOW_FLAG_INTERMEDIATE: f64 = 1.0; // Intermediate value indicating shadow
-const SUNLIT_FLAG_INTERMEDIATE: f64 = 0.0; // Intermediate value indicating sunlit
-const FINAL_SUNLIT_VALUE: f64 = 1.0; // Final output value representing sunlit
-const PERGOLA_SOLID_THRESHOLD: f64 = 4.0; // Threshold for pergola shadow logic
-const PI_OVER_4: f64 = std::f64::consts::FRAC_PI_4;
-const THREE_PI_OVER_4: f64 = 3.0 * PI_OVER_4;
-const FIVE_PI_OVER_4: f64 = 5.0 * PI_OVER_4;
-const SEVEN_PI_OVER_4: f64 = 7.0 * PI_OVER_4;
-const TAU: f64 = std::f64::consts::TAU; // 2 * PI
-const EPSILON: f64 = 1e-8; // Small value for float comparisons
+const SHADOW_FLAG_INTERMEDIATE: f32 = 1.0; // Intermediate value indicating shadow
+const SUNLIT_FLAG_INTERMEDIATE: f32 = 0.0; // Intermediate value indicating sunlit
+const FINAL_SUNLIT_VALUE: f32 = 1.0; // Final output value representing sunlit
+const PERGOLA_SOLID_THRESHOLD: f32 = 4.0; // Threshold for pergola shadow logic
+const PI_OVER_4: f32 = std::f32::consts::FRAC_PI_4;
+const THREE_PI_OVER_4: f32 = 3.0 * PI_OVER_4;
+const FIVE_PI_OVER_4: f32 = 5.0 * PI_OVER_4;
+const SEVEN_PI_OVER_4: f32 = 7.0 * PI_OVER_4;
+const TAU: f32 = std::f32::consts::TAU; // 2 * PI
+const EPSILON: f32 = 1e-8; // Small value for float comparisons
 
 /// Rust-native result struct for internal shadow calculations.
 pub(crate) struct ShadowingResultRust {
-    pub veg_shadow_map: Array2<f64>,
-    pub bldg_shadow_map: Array2<f64>,
-    pub vbshvegsh: Array2<f64>,
-    pub wallsh: Option<Array2<f64>>,
-    pub wallsun: Option<Array2<f64>>,
-    pub wallshve: Option<Array2<f64>>,
-    pub facesh: Option<Array2<f64>>,
-    pub facesun: Option<Array2<f64>>,
-    pub shade_on_wall: Option<Array2<f64>>,
+    pub veg_shadow_map: Array2<f32>,
+    pub bldg_shadow_map: Array2<f32>,
+    pub vbshvegsh: Array2<f32>,
+    pub wallsh: Option<Array2<f32>>,
+    pub wallsun: Option<Array2<f32>>,
+    pub wallshve: Option<Array2<f32>>,
+    pub facesh: Option<Array2<f32>>,
+    pub facesun: Option<Array2<f32>>,
+    pub shade_on_wall: Option<Array2<f32>>,
 }
 
 #[pyclass]
 /// Result of the shadowing function, containing all output shadow maps (Python version).
 pub struct ShadowingResult {
     #[pyo3(get)]
-    pub veg_shadow_map: Py<PyArray2<f64>>,
+    pub veg_shadow_map: Py<PyArray2<f32>>,
     #[pyo3(get)]
-    pub bldg_shadow_map: Py<PyArray2<f64>>,
+    pub bldg_shadow_map: Py<PyArray2<f32>>,
     #[pyo3(get)]
     /// Vegetation Blocking Building Shadow: Indicates where vegetation prevents building shadow.
-    pub vbshvegsh: Py<PyArray2<f64>>,
+    pub vbshvegsh: Py<PyArray2<f32>>,
     #[pyo3(get)]
-    pub wallsh: Option<Py<PyArray2<f64>>>, // Shadowed wall height (by buildings) - Optional
+    pub wallsh: Option<Py<PyArray2<f32>>>, // Shadowed wall height (by buildings) - Optional
     #[pyo3(get)]
-    pub wallsun: Option<Py<PyArray2<f64>>>, // Sunlit wall height - Optional
+    pub wallsun: Option<Py<PyArray2<f32>>>, // Sunlit wall height - Optional
     #[pyo3(get)]
-    pub wallshve: Option<Py<PyArray2<f64>>>, // Wall height shadowed by vegetation - Optional
+    pub wallshve: Option<Py<PyArray2<f32>>>, // Wall height shadowed by vegetation - Optional
     #[pyo3(get)]
-    pub facesh: Option<Py<PyArray2<f64>>>, // Wall face shadow mask (1 if face away from sun) - Optional
+    pub facesh: Option<Py<PyArray2<f32>>>, // Wall face shadow mask (1 if face away from sun) - Optional
     #[pyo3(get)]
-    pub facesun: Option<Py<PyArray2<f64>>>, // Sunlit wall face mask (1 if face towards sun and not obstructed) - Optional
+    pub facesun: Option<Py<PyArray2<f32>>>, // Sunlit wall face mask (1 if face towards sun and not obstructed) - Optional
     #[pyo3(get)]
     /// Combined building and vegetation shadow height on walls (optional scheme).
-    pub shade_on_wall: Option<Py<PyArray2<f64>>>,
+    pub shade_on_wall: Option<Py<PyArray2<f32>>>,
 }
 
 // Helper function to safely get values from ArrayView2, handling out-of-bounds
 #[inline]
-fn get_view_value(view: &ArrayView2<f64>, r: isize, c: isize, rows: usize, cols: usize) -> f64 {
+fn get_view_value(view: &ArrayView2<f32>, r: isize, c: isize, rows: usize, cols: usize) -> f32 {
     if r >= 0 && r < rows as isize && c >= 0 && c < cols as isize {
         // Safety: Bounds check performed above
         unsafe { *view.uget([r as usize, c as usize]) }
@@ -68,41 +68,41 @@ fn get_view_value(view: &ArrayView2<f64>, r: isize, c: isize, rows: usize, cols:
 /// Operates purely on ndarray types.
 #[allow(clippy::too_many_arguments)] // Keep arguments for clarity
 pub(crate) fn calculate_shadows_rust(
-    dsm_view: ArrayView2<f64>,
-    veg_canopy_dsm_view: ArrayView2<f64>,
-    veg_trunk_dsm_view: ArrayView2<f64>,
-    azimuth_deg: f64,
-    altitude_deg: f64,
-    scale: f64,
-    amaxvalue: f64,
-    bush_view: ArrayView2<f64>,
-    walls_view_opt: Option<ArrayView2<f64>>,
-    aspect_view_opt: Option<ArrayView2<f64>>,
-    walls_scheme_view_opt: Option<ArrayView2<f64>>,
-    aspect_scheme_view_opt: Option<ArrayView2<f64>>,
+    dsm_view: ArrayView2<f32>,
+    veg_canopy_dsm_view: ArrayView2<f32>,
+    veg_trunk_dsm_view: ArrayView2<f32>,
+    azimuth_deg: f32,
+    altitude_deg: f32,
+    scale: f32,
+    amaxvalue: f32,
+    bush_view: ArrayView2<f32>,
+    walls_view_opt: Option<ArrayView2<f32>>,
+    aspect_view_opt: Option<ArrayView2<f32>>,
+    walls_scheme_view_opt: Option<ArrayView2<f32>>,
+    aspect_scheme_view_opt: Option<ArrayView2<f32>>,
 ) -> ShadowingResultRust {
     let shape = dsm_view.shape();
     let sizex = shape[0];
     let sizey = shape[1];
 
-    let mut dx: f64 = 0.0;
-    let mut dy: f64 = 0.0;
-    let mut dz: f64 = 0.0;
-    let mut ds: f64 = 0.0; // Declare ds here
-    let mut prev_dx: f64 = 0.0; // Store previous offsets
-    let mut prev_dy: f64 = 0.0;
-    let mut prev_dz: f64 = 0.0;
+    let mut dx: f32 = 0.0;
+    let mut dy: f32 = 0.0;
+    let mut dz: f32 = 0.0;
+    let mut ds: f32 = 0.0; // Declare ds here
+    let mut prev_dx: f32 = 0.0; // Store previous offsets
+    let mut prev_dy: f32 = 0.0;
+    let mut prev_dz: f32 = 0.0;
 
     // Bush mask threshold should match Python: bushplant = bush > 1
     let is_bush_map = bush_view.mapv(|v| if v > 1.0 { 1.0 } else { 0.0 });
-    let mut bldg_shadow_map = Array2::<f64>::zeros((sizex, sizey));
-    let mut vbshvegsh = Array2::<f64>::zeros((sizex, sizey));
+    let mut bldg_shadow_map = Array2::<f32>::zeros((sizex, sizey));
+    let mut vbshvegsh = Array2::<f32>::zeros((sizex, sizey));
     // Initialize veg_shadow_map with bush locations
     let mut veg_shadow_map = is_bush_map;
 
-    let mut propagated_bldg_shadow_height = Array2::<f64>::zeros((sizex, sizey));
+    let mut propagated_bldg_shadow_height = Array2::<f32>::zeros((sizex, sizey));
     propagated_bldg_shadow_height.assign(&dsm_view);
-    let mut propagated_veg_shadow_height = Array2::<f64>::zeros((sizex, sizey));
+    let mut propagated_veg_shadow_height = Array2::<f32>::zeros((sizex, sizey));
     propagated_veg_shadow_height.assign(&veg_canopy_dsm_view);
 
     let azimuth_rad = azimuth_deg.to_radians();
@@ -117,7 +117,7 @@ pub(crate) fn calculate_shadows_rust(
     let tanaltitudebyscale = altitude_rad.tan() / scale;
     let mut index = 0.0;
 
-    while amaxvalue >= dz && dx.abs() < sizex as f64 && dy.abs() < sizey as f64 {
+    while amaxvalue >= dz && dx.abs() < sizex as f32 && dy.abs() < sizey as f32 {
         // Calculate offsets dx, dy, dz based on index and sun angles
         if (PI_OVER_4 <= azimuth_rad && azimuth_rad < THREE_PI_OVER_4)
             || (FIVE_PI_OVER_4 <= azimuth_rad && azimuth_rad < SEVEN_PI_OVER_4)
@@ -149,10 +149,10 @@ pub(crate) fn calculate_shadows_rust(
 
                     // Calculate source coordinates (integer for indexing)
                     // Apply offset consistent with the working slice logic (target + offset)
-                    let sx_i = (tx as f64 + dx).round() as isize; // Changed -dx to +dx
-                    let sy_i = (ty as f64 + dy).round() as isize; // Changed -dy to +dy
-                    let prev_sx_i = (tx as f64 + prev_dx).round() as isize; // Changed -prev_dx to +prev_dx
-                    let prev_sy_i = (ty as f64 + prev_dy).round() as isize; // Changed -prev_dy to +prev_dy
+                    let sx_i = (tx as f32 + dx).round() as isize;
+                    let sy_i = (ty as f32 + dy).round() as isize;
+                    let prev_sx_i = (tx as f32 + prev_dx).round() as isize;
+                    let prev_sy_i = (ty as f32 + prev_dy).round() as isize;
 
                     // Fetch source values safely using helper function
                     let source_dsm = get_view_value(&dsm_view, sx_i, sy_i, sizex, sizey);
@@ -218,7 +218,7 @@ pub(crate) fn calculate_shadows_rust(
                         SUNLIT_FLAG_INTERMEDIATE
                     };
                     // Update main veg shadow flag (accumulates)
-                    *veg_sh_flag = f64::max(*veg_sh_flag, pergola_shadow);
+                    *veg_sh_flag = f32::max(*veg_sh_flag, pergola_shadow);
                 },
             );
 
@@ -276,12 +276,12 @@ pub(crate) fn calculate_shadows_rust(
             *prop_veg_h = (*prop_veg_h - dsm_h).max(0.0) * mask;
         });
 
-    let mut wallsh_opt: Option<Array2<f64>> = None;
-    let mut wallsun_opt: Option<Array2<f64>> = None;
-    let mut wallshve_opt: Option<Array2<f64>> = None;
-    let mut facesh_opt: Option<Array2<f64>> = None;
-    let mut facesun_opt: Option<Array2<f64>> = None;
-    let mut shade_on_wall_result: Option<Array2<f64>> = None;
+    let mut wallsh_opt: Option<Array2<f32>> = None;
+    let mut wallsun_opt: Option<Array2<f32>> = None;
+    let mut wallshve_opt: Option<Array2<f32>> = None;
+    let mut facesh_opt: Option<Array2<f32>> = None;
+    let mut facesun_opt: Option<Array2<f32>> = None;
+    let mut shade_on_wall_result: Option<Array2<f32>> = None;
 
     if let (Some(walls_view), Some(aspect_view)) = (walls_view_opt, aspect_view_opt) {
         let (wallsh, wallsun, wallshve, facesh, facesun) = shade_on_walls(
@@ -316,11 +316,11 @@ pub(crate) fn calculate_shadows_rust(
                 propagated_veg_shadow_height.view(),
             );
             let mut shade_on_wall_combined =
-                Array2::<f64>::zeros(scheme_shadowed_wall_height.dim());
+                Array2::<f32>::zeros(scheme_shadowed_wall_height.dim());
             Zip::from(&mut shade_on_wall_combined)
                 .and(&scheme_shadowed_wall_height)
                 .and(&scheme_veg_shadow_on_wall_height)
-                .par_for_each(|sow, &wsh, &wsv| *sow = f64::max(wsh, wsv));
+                .par_for_each(|sow, &wsh, &wsv| *sow = f32::max(wsh, wsv));
             shade_on_wall_result = Some(shade_on_wall_combined);
         }
     }
@@ -339,28 +339,28 @@ pub(crate) fn calculate_shadows_rust(
 }
 
 fn shade_on_walls(
-    azimuth: f64,
-    aspect: ArrayView2<f64>,
-    walls: ArrayView2<f64>,
-    dsm: ArrayView2<f64>,
-    propagated_bldg_shadow_height: ArrayView2<f64>,
-    propagated_veg_shadow_height: ArrayView2<f64>,
+    azimuth: f32,
+    aspect: ArrayView2<f32>,
+    walls: ArrayView2<f32>,
+    dsm: ArrayView2<f32>,
+    propagated_bldg_shadow_height: ArrayView2<f32>,
+    propagated_veg_shadow_height: ArrayView2<f32>,
 ) -> (
-    Array2<f64>,
-    Array2<f64>,
-    Array2<f64>,
-    Array2<f64>,
-    Array2<f64>,
+    Array2<f32>,
+    Array2<f32>,
+    Array2<f32>,
+    Array2<f32>,
+    Array2<f32>,
 ) {
     let shape = walls.dim();
-    let mut wall_mask = Array2::<f64>::zeros(shape);
+    let mut wall_mask = Array2::<f32>::zeros(shape);
     Zip::from(&mut wall_mask)
         .and(&walls)
         .par_for_each(|mask_val, &wall_h| *mask_val = if wall_h > 0.0 { 1.0 } else { 0.0 });
 
-    let azilow = azimuth - std::f64::consts::FRAC_PI_2;
-    let azihigh = azimuth + std::f64::consts::FRAC_PI_2;
-    let mut wall_face_shadow_mask = Array2::<f64>::zeros(shape);
+    let azilow = azimuth - std::f32::consts::FRAC_PI_2;
+    let azihigh = azimuth + std::f32::consts::FRAC_PI_2;
+    let mut wall_face_shadow_mask = Array2::<f32>::zeros(shape);
     if azilow >= 0.0 && azihigh < TAU {
         Zip::from(&mut wall_face_shadow_mask)
             .and(aspect)
@@ -397,13 +397,13 @@ fn shade_on_walls(
             });
     }
 
-    let mut building_shadow_volume_height = Array2::<f64>::zeros(shape);
+    let mut building_shadow_volume_height = Array2::<f32>::zeros(shape);
     Zip::from(&mut building_shadow_volume_height)
         .and(&propagated_bldg_shadow_height)
         .and(&dsm)
         .par_for_each(|sh_vol, &prop_h, &dsm_h| *sh_vol = prop_h - dsm_h);
 
-    let mut sunlit_wall_face_mask = Array2::<f64>::zeros(shape);
+    let mut sunlit_wall_face_mask = Array2::<f32>::zeros(shape);
     Zip::from(&mut sunlit_wall_face_mask)
         .and(&wall_face_shadow_mask)
         .and(walls)
@@ -417,7 +417,7 @@ fn shade_on_walls(
             };
         });
 
-    let mut sunlit_wall_height = Array2::<f64>::zeros(shape);
+    let mut sunlit_wall_height = Array2::<f32>::zeros(shape);
     Zip::from(&mut sunlit_wall_height)
         .and(&walls)
         .and(&building_shadow_volume_height)
@@ -431,13 +431,13 @@ fn shade_on_walls(
             }
         });
 
-    let mut shadowed_wall_height = Array2::<f64>::zeros(shape);
+    let mut shadowed_wall_height = Array2::<f32>::zeros(shape);
     Zip::from(&mut shadowed_wall_height)
         .and(&walls)
         .and(&sunlit_wall_height)
         .par_for_each(|sh_h, &wall_h, &sun_h| *sh_h = wall_h - sun_h);
 
-    let mut veg_shadow_on_wall_height = Array2::<f64>::zeros(shape);
+    let mut veg_shadow_on_wall_height = Array2::<f32>::zeros(shape);
     Zip::from(&mut veg_shadow_on_wall_height)
         .and(&propagated_veg_shadow_height)
         .and(&wall_mask)
@@ -498,18 +498,18 @@ fn shade_on_walls(
 /// * `ShadowingResult` struct containing various shadow maps (ground, vegetation, walls) as PyArrays.
 pub fn shadowingfunction_wallheight_25(
     py: Python,
-    dsm: PyReadonlyArray2<f64>,
-    veg_canopy_dsm: PyReadonlyArray2<f64>,
-    veg_trunk_dsm: PyReadonlyArray2<f64>,
-    azimuth_deg: f64,
-    altitude_deg: f64,
-    scale: f64,
-    amaxvalue: f64,
-    bush: PyReadonlyArray2<f64>,
-    walls: Option<PyReadonlyArray2<f64>>,
-    aspect: Option<PyReadonlyArray2<f64>>,
-    walls_scheme: Option<PyReadonlyArray2<f64>>,
-    aspect_scheme: Option<PyReadonlyArray2<f64>>,
+    dsm: PyReadonlyArray2<f32>,
+    veg_canopy_dsm: PyReadonlyArray2<f32>,
+    veg_trunk_dsm: PyReadonlyArray2<f32>,
+    azimuth_deg: f32,
+    altitude_deg: f32,
+    scale: f32,
+    amaxvalue: f32,
+    bush: PyReadonlyArray2<f32>,
+    walls: Option<PyReadonlyArray2<f32>>,
+    aspect: Option<PyReadonlyArray2<f32>>,
+    walls_scheme: Option<PyReadonlyArray2<f32>>,
+    aspect_scheme: Option<PyReadonlyArray2<f32>>,
 ) -> PyResult<PyObject> {
     let dsm_view = dsm.as_array();
     let veg_canopy_dsm_view = veg_canopy_dsm.as_array();
