@@ -1,6 +1,7 @@
 use ndarray::{s, Array2, Array3, ArrayView2, Zip};
 use numpy::{IntoPyArray, PyArray2, PyArray3, PyReadonlyArray2};
 use pyo3::prelude::*;
+use rayon::prelude::*;
 
 use crate::shadowing::{calculate_shadows_rust, ShadowingResultRust}; // Import the internal Rust function and the Rust result struct
 
@@ -214,167 +215,254 @@ pub fn calculate_svf_153(
         }
     }
 
+    // Precompute patch index offsets for each altitude band for fast lookup
+    let mut patch_offsets = Vec::with_capacity(skyvaultaltint.len() + 1);
+    patch_offsets.push(0);
+    for i in 0..skyvaultaltint.len() {
+        patch_offsets.push(patch_offsets[i] + aziinterval[i] as usize);
+    }
+
+    // --- Precompute Annulus Weights ---
+    let num_alt_bands = skyvaultaltint.len();
+    let max_alt_deg: i32 = 90; // Maximum possible altitude degree as i32
+    let mut weights = vec![vec![0.0; (max_alt_deg + 1) as usize]; num_alt_bands];
+    let mut weights_aniso = vec![vec![0.0; (max_alt_deg + 1) as usize]; num_alt_bands];
+
+    for i in 0..num_alt_bands {
+        let patches_in_annulus = aziinterval[i];
+        let patches_in_annulus_aniso = (patches_in_annulus / 2.0).ceil();
+        let alt_lower_bound = annulino[i];
+        let alt_upper_bound = annulino[i + 1];
+        for k_alt_deg in (alt_lower_bound as i32 + 1)..=(alt_upper_bound as i32) {
+            if k_alt_deg > 0 && k_alt_deg <= max_alt_deg {
+                let k_alt_deg_f64 = k_alt_deg as f64;
+                let k_idx = k_alt_deg as usize;
+                weights[i][k_idx] = calculate_annulus_weight(k_alt_deg_f64, patches_in_annulus);
+                weights_aniso[i][k_idx] =
+                    calculate_annulus_weight(k_alt_deg_f64, patches_in_annulus_aniso);
+            }
+        }
+    }
+
     // Shadow matrices (rows, cols, patches)
     let mut shadow_matrix = Array3::<f64>::zeros((rows, cols, total_patches));
     let mut veg_shadow_matrix = Array3::<f64>::zeros((rows, cols, total_patches));
     let mut vbshvegsh_matrix = Array3::<f64>::zeros((rows, cols, total_patches));
 
-    // --- Main Loop ---
-    let mut patch_index = 0;
-    // Iterate through altitude bands
-    for i in 0..skyvaultaltint.len() {
-        let altitude_band_upper_deg = skyvaultaltint[i];
-        let altitude_band_lower_deg = if i == 0 { 0.0 } else { skyvaultaltint[i - 1] };
-        let altitude_deg_for_shadow = (altitude_band_lower_deg + altitude_band_upper_deg) / 2.0;
-        let num_azi_intervals = aziinterval[i] as usize;
-        let patches_in_annulus_aniso = (aziinterval[i] / 2.0).ceil();
-
-        // Iterate through azimuth angles within the current altitude band
-        for _j in 0..num_azi_intervals {
-            let azimuth_deg = azimuth_angles[patch_index];
-
-            // --- Shadow Calculation (Direct Rust Call) ---
-            let shadow_result: ShadowingResultRust = calculate_shadows_rust(
-                dsm_view,              // Pass ArrayView2
-                veg_canopy_dsm.view(), // Pass ArrayView2
-                veg_trunk_dsm.view(),  // Pass ArrayView2
-                azimuth_deg,
-                altitude_deg_for_shadow,
-                scale,
-                amaxvalue,
-                bush_view, // Pass ArrayView2
-                None,      // walls - Pass None
-                None,      // aspect - Pass None
-                None,      // walls_scheme - Pass None
-                None,      // aspect_scheme - Pass None
-            );
-
-            // Access results directly as Array2<f64>
-            let sh = shadow_result.bldg_shadow_map;
-            let vegsh = shadow_result.veg_shadow_map;
-            let vbshvegsh = shadow_result.vbshvegsh;
-
-            // Store shadow results (0=shadow, 1=sunlit) - Use Array2 directly
-            shadow_matrix.slice_mut(s![.., .., patch_index]).assign(&sh);
-            if usevegdem {
-                veg_shadow_matrix
-                    .slice_mut(s![.., .., patch_index])
-                    .assign(&vegsh);
-                vbshvegsh_matrix
-                    .slice_mut(s![.., .., patch_index])
-                    .assign(&vbshvegsh);
-            }
-
-            // --- SVF Accumulation ---
+    // --- Main Loop (Parallelized) ---
+    let patch_results: Vec<_> = (0..skyvaultaltint.len())
+        .into_par_iter()
+        .flat_map_iter(|i| {
+            let altitude_deg_for_shadow = (annulino[i] + annulino[i + 1]) / 2.0;
+            let num_azi_intervals = aziinterval[i] as usize;
+            let patch_offset = patch_offsets[i];
+            let skyvaultaziint = 360.0 / aziinterval[i];
+            let azi_start = azistart[i];
+            // Precompute weights for this band to avoid repeated indexing in the inner loop
+            let weights_band = &weights[i];
+            let weights_aniso_band = &weights_aniso[i];
             let alt_lower_bound = annulino[i];
             let alt_upper_bound = annulino[i + 1];
-
-            for k_alt_deg in (alt_lower_bound as i32 + 1)..=(alt_upper_bound as i32) {
-                let k_alt_deg_f64 = k_alt_deg as f64;
-
-                // Calculate weights
-                let weight = calculate_annulus_weight(k_alt_deg_f64, aziinterval[i]);
-                let weight_aniso =
-                    calculate_annulus_weight(k_alt_deg_f64, patches_in_annulus_aniso);
-
-                // Accumulate isotropic SVF (buildings only) - Use Array2 directly
-                Zip::from(&mut svf)
-                    .and(&sh) // Use Array2 sh
-                    .par_for_each(|svf_val, &sh_val| *svf_val += weight * sh_val);
-
-                // Accumulate anisotropic SVF (buildings only) - Use Array2 directly
-                let azi_rad = azimuth_deg.to_radians();
-                // East
-                if azi_rad >= 0.0 && azi_rad < std::f64::consts::PI {
-                    Zip::from(&mut svf_e)
-                        .and(&sh) // Use Array2 sh
-                        .par_for_each(|svf_val, &sh_val| *svf_val += weight_aniso * sh_val);
+            // Precompute weights only once per band, store in tuple for all azimuths in this band
+            let (total_weight, total_weight_aniso) = {
+                let mut tw = 0.0;
+                let mut twa = 0.0;
+                // This loop is efficient as it runs only once per altitude band (outer parallel task).
+                for k_alt_deg in (alt_lower_bound as i32 + 1)..=(alt_upper_bound as i32) {
+                    if k_alt_deg > 0 && k_alt_deg <= 90 {
+                        let k_idx = k_alt_deg as usize;
+                        tw += weights_band[k_idx];
+                        twa += weights_aniso_band[k_idx];
+                    }
                 }
-                // South
+                (tw, twa)
+            };
+            // This sequential map generates the parameters for each azimuth within the current altitude band.
+            // It runs sequentially within each parallel task of the outer loop.
+            (0..num_azi_intervals).map(move |j| {
+                let patch_index = patch_offset + j;
+                let mut azimuth_deg = (j as f64) * skyvaultaziint + azi_start;
+                if azimuth_deg >= 360.0 {
+                    azimuth_deg -= 360.0;
+                }
+                let azi_rad = azimuth_deg.to_radians();
+
+                (
+                    i,
+                    patch_index,
+                    azimuth_deg,
+                    azi_rad,
+                    altitude_deg_for_shadow,
+                    total_weight,       // Pass precomputed weights
+                    total_weight_aniso, // Pass precomputed weights
+                )
+            })
+        })
+        // The .map() below processes each generated patch tuple in parallel.
+        // The main workload (calculate_shadows_rust) happens here.
+        .map(
+            |(
+                _i, // i is no longer needed here as weights are precomputed and passed
+                patch_index,
+                azimuth_deg,
+                azi_rad,
+                altitude_deg_for_shadow,
+                total_weight,
+                total_weight_aniso,
+            )| {
+                let shadow_result: ShadowingResultRust = calculate_shadows_rust(
+                    dsm_view,
+                    veg_canopy_dsm.view(),
+                    veg_trunk_dsm.view(),
+                    azimuth_deg,
+                    altitude_deg_for_shadow,
+                    scale,
+                    amaxvalue,
+                    bush_view,
+                    None,
+                    None,
+                    None,
+                    None,
+                );
+                let sh = shadow_result.bldg_shadow_map;
+                let vegsh = shadow_result.veg_shadow_map;
+                let vbshvegsh = shadow_result.vbshvegsh;
+
+                // Use precomputed total_weight and total_weight_aniso
+                let mut svf_patch = sh.mapv(|v| total_weight * v);
+                let mut svf_e_patch = Array2::<f64>::zeros(shape);
+                let mut svf_s_patch = Array2::<f64>::zeros(shape);
+                let mut svf_w_patch = Array2::<f64>::zeros(shape);
+                let mut svf_n_patch = Array2::<f64>::zeros(shape);
+
+                if azi_rad >= 0.0 && azi_rad < std::f64::consts::PI {
+                    svf_e_patch = sh.mapv(|v| total_weight_aniso * v);
+                }
                 if azi_rad >= std::f64::consts::FRAC_PI_2
                     && azi_rad < 3.0 * std::f64::consts::FRAC_PI_2
                 {
-                    Zip::from(&mut svf_s)
-                        .and(&sh) // Use Array2 sh
-                        .par_for_each(|svf_val, &sh_val| *svf_val += weight_aniso * sh_val);
+                    svf_s_patch = sh.mapv(|v| total_weight_aniso * v);
                 }
-                // West
                 if azi_rad >= std::f64::consts::PI && azi_rad < std::f64::consts::TAU {
-                    Zip::from(&mut svf_w)
-                        .and(&sh) // Use Array2 sh
-                        .par_for_each(|svf_val, &sh_val| *svf_val += weight_aniso * sh_val);
+                    svf_w_patch = sh.mapv(|v| total_weight_aniso * v);
                 }
-                // North
                 if azi_rad >= 3.0 * std::f64::consts::FRAC_PI_2
                     || azi_rad < std::f64::consts::FRAC_PI_2
                 {
-                    Zip::from(&mut svf_n)
-                        .and(&sh) // Use Array2 sh
-                        .par_for_each(|svf_val, &sh_val| *svf_val += weight_aniso * sh_val);
+                    svf_n_patch = sh.mapv(|v| total_weight_aniso * v);
                 }
 
-                // Accumulate vegetation SVFs if enabled - Use Array2 directly
-                if usevegdem {
-                    Zip::from(&mut svf_veg)
-                        .and(&vegsh) // Use Array2 vegsh
-                        .par_for_each(|svf_val, &vegsh_val| *svf_val += weight * vegsh_val);
-                    Zip::from(&mut svf_aniso_veg)
-                        .and(&vbshvegsh) // Use Array2 vbshvegsh
-                        .par_for_each(|svf_val, &vbsh_val| *svf_val += weight * vbsh_val);
+                let mut svf_veg_patch = Array2::<f64>::zeros(shape);
+                let mut svf_aniso_veg_patch = Array2::<f64>::zeros(shape);
+                let mut svf_veg_e_patch = Array2::<f64>::zeros(shape);
+                let mut svf_veg_s_patch = Array2::<f64>::zeros(shape);
+                let mut svf_veg_w_patch = Array2::<f64>::zeros(shape);
+                let mut svf_veg_n_patch = Array2::<f64>::zeros(shape);
+                let mut svf_aniso_veg_e_patch = Array2::<f64>::zeros(shape);
+                let mut svf_aniso_veg_s_patch = Array2::<f64>::zeros(shape);
+                let mut svf_aniso_veg_w_patch = Array2::<f64>::zeros(shape);
+                let mut svf_aniso_veg_n_patch = Array2::<f64>::zeros(shape);
 
-                    // Anisotropic vegetation SVFs - Use Array2 directly
-                    // East
+                if usevegdem {
+                    svf_veg_patch = vegsh.mapv(|v| total_weight * v);
+                    svf_aniso_veg_patch = vbshvegsh.mapv(|v| total_weight * v);
+
                     if azi_rad >= 0.0 && azi_rad < std::f64::consts::PI {
-                        Zip::from(&mut svf_veg_e).and(&vegsh).par_for_each(
-                            // Use Array2 vegsh
-                            |svf_val, &vegsh_val| *svf_val += weight_aniso * vegsh_val,
-                        );
-                        Zip::from(&mut svf_aniso_veg_e)
-                            .and(&vbshvegsh) // Use Array2 vbshvegsh
-                            .par_for_each(|svf_val, &vbsh_val| *svf_val += weight_aniso * vbsh_val);
+                        svf_veg_e_patch = vegsh.mapv(|v| total_weight_aniso * v);
+                        svf_aniso_veg_e_patch = vbshvegsh.mapv(|v| total_weight_aniso * v);
                     }
-                    // South
                     if azi_rad >= std::f64::consts::FRAC_PI_2
                         && azi_rad < 3.0 * std::f64::consts::FRAC_PI_2
                     {
-                        Zip::from(&mut svf_veg_s).and(&vegsh).par_for_each(
-                            // Use Array2 vegsh
-                            |svf_val, &vegsh_val| *svf_val += weight_aniso * vegsh_val,
-                        );
-                        Zip::from(&mut svf_aniso_veg_s)
-                            .and(&vbshvegsh) // Use Array2 vbshvegsh
-                            .par_for_each(|svf_val, &vbsh_val| *svf_val += weight_aniso * vbsh_val);
+                        svf_veg_s_patch = vegsh.mapv(|v| total_weight_aniso * v);
+                        svf_aniso_veg_s_patch = vbshvegsh.mapv(|v| total_weight_aniso * v);
                     }
-                    // West
                     if azi_rad >= std::f64::consts::PI && azi_rad < std::f64::consts::TAU {
-                        Zip::from(&mut svf_veg_w).and(&vegsh).par_for_each(
-                            // Use Array2 vegsh
-                            |svf_val, &vegsh_val| *svf_val += weight_aniso * vegsh_val,
-                        );
-                        Zip::from(&mut svf_aniso_veg_w)
-                            .and(&vbshvegsh) // Use Array2 vbshvegsh
-                            .par_for_each(|svf_val, &vbsh_val| *svf_val += weight_aniso * vbsh_val);
+                        svf_veg_w_patch = vegsh.mapv(|v| total_weight_aniso * v);
+                        svf_aniso_veg_w_patch = vbshvegsh.mapv(|v| total_weight_aniso * v);
                     }
-                    // North
                     if azi_rad >= 3.0 * std::f64::consts::FRAC_PI_2
                         || azi_rad < std::f64::consts::FRAC_PI_2
                     {
-                        Zip::from(&mut svf_veg_n).and(&vegsh).par_for_each(
-                            // Use Array2 vegsh
-                            |svf_val, &vegsh_val| *svf_val += weight_aniso * vegsh_val,
-                        );
-                        Zip::from(&mut svf_aniso_veg_n)
-                            .and(&vbshvegsh) // Use Array2 vbshvegsh
-                            .par_for_each(|svf_val, &vbsh_val| *svf_val += weight_aniso * vbsh_val);
+                        svf_veg_n_patch = vegsh.mapv(|v| total_weight_aniso * v);
+                        svf_aniso_veg_n_patch = vbshvegsh.mapv(|v| total_weight_aniso * v);
                     }
-                } // end if usevegdem
-            } // end loop k (finer altitude steps)
+                }
 
-            patch_index += 1;
-        } // end loop j (azimuth angles)
-    } // end loop i (altitude bands)
+                (
+                    patch_index,
+                    sh,
+                    vegsh,
+                    vbshvegsh,
+                    svf_patch,
+                    svf_e_patch,
+                    svf_s_patch,
+                    svf_w_patch,
+                    svf_n_patch,
+                    svf_veg_patch,
+                    svf_veg_e_patch,
+                    svf_veg_s_patch,
+                    svf_veg_w_patch,
+                    svf_veg_n_patch,
+                    svf_aniso_veg_patch,
+                    svf_aniso_veg_e_patch,
+                    svf_aniso_veg_s_patch,
+                    svf_aniso_veg_w_patch,
+                    svf_aniso_veg_n_patch,
+                )
+            },
+        )
+        .collect();
 
-    // --- Post-Loop Adjustments ---
+    // --- Aggregate results ---
+    for (
+        patch_index,
+        sh,
+        vegsh,
+        vbshvegsh,
+        svf_patch,
+        svf_e_patch,
+        svf_s_patch,
+        svf_w_patch,
+        svf_n_patch,
+        svf_veg_patch,
+        svf_veg_e_patch,
+        svf_veg_s_patch,
+        svf_veg_w_patch,
+        svf_veg_n_patch,
+        svf_aniso_veg_patch,
+        svf_aniso_veg_e_patch,
+        svf_aniso_veg_s_patch,
+        svf_aniso_veg_w_patch,
+        svf_aniso_veg_n_patch,
+    ) in patch_results
+    {
+        svf += &svf_patch;
+        svf_e += &svf_e_patch;
+        svf_s += &svf_s_patch;
+        svf_w += &svf_w_patch;
+        svf_n += &svf_n_patch;
+        shadow_matrix.slice_mut(s![.., .., patch_index]).assign(&sh);
+        if usevegdem {
+            svf_veg += &svf_veg_patch;
+            svf_veg_e += &svf_veg_e_patch;
+            svf_veg_s += &svf_veg_s_patch;
+            svf_veg_w += &svf_veg_w_patch;
+            svf_veg_n += &svf_veg_n_patch;
+            svf_aniso_veg += &svf_aniso_veg_patch;
+            svf_aniso_veg_e += &svf_aniso_veg_e_patch;
+            svf_aniso_veg_s += &svf_aniso_veg_s_patch;
+            svf_aniso_veg_w += &svf_aniso_veg_w_patch;
+            svf_aniso_veg_n += &svf_aniso_veg_n_patch;
+            veg_shadow_matrix
+                .slice_mut(s![.., .., patch_index])
+                .assign(&vegsh);
+            vbshvegsh_matrix
+                .slice_mut(s![.., .., patch_index])
+                .assign(&vbshvegsh);
+        }
+    }
+
     let small_const = 3.0459e-004;
     svf_s.par_mapv_inplace(|v| v + small_const);
     svf_w.par_mapv_inplace(|v| v + small_const);
@@ -416,7 +504,6 @@ pub fn calculate_svf_153(
         svf_aniso_veg_n.par_mapv_inplace(|v| v.min(1.0));
     }
 
-    // --- Prepare and Return Results ---
     let result = SvfResult {
         svf: svf.into_pyarray(py).to_owned().into(),
         svf_east: svf_e.into_pyarray(py).to_owned().into(),

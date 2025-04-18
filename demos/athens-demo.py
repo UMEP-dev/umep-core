@@ -14,7 +14,7 @@ from umep import (
 #
 bbox = [476070, 4203550, 477110, 4204330]
 working_folder = "demos/data/athens"
-pixel_res = 1  # metres
+pixel_res = 2  # metres
 working_crs = 2100
 
 working_path = Path(working_folder).absolute()
@@ -112,7 +112,7 @@ if not Path.exists(working_path / f"svf_{pixel_res}m"):
     skyviewfactor_algorithm.generate_svf(
         dsm_path=working_path_str + f"/DSM_{pixel_res}m.tif",
         bbox=bbox,
-        out_dir=working_path_str + "/svf",
+        out_dir=working_path_str + f"/svf_{pixel_res}m",
         cdsm_path=working_path_str + f"/CDSM_{pixel_res}m.tif",
         trans_veg=5,
     )

@@ -30,9 +30,32 @@ def make_test_arrays(
     return dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp
 
 
+# Calculate and print per-array right percentage
+def pct(a, b, atol=0.001):
+    if a is None or b is None:
+        return "N/A"
+    # Ensure shapes match before comparison
+    if a.shape != b.shape:
+        return f"Shape mismatch: {a.shape} vs {b.shape}"
+    return 100.0 * np.isclose(a, b, atol=atol, rtol=0, equal_nan=True).sum() / a.size
+
+
+def compare_svf_results(result_py, result_rust, key_map, atol=0.1):
+    print("\n--- SVF Comparison ---")
+    all_match = True
+    for py_key, rust_attr in key_map.items():
+        py_val = result_py.get(py_key)
+        rust_val = getattr(result_rust, rust_attr, None)
+        match_pct = pct(py_val, rust_val, atol=atol)
+        mean_diff = np.abs(py_val - rust_val).mean() if py_val is not None and rust_val is not None else float("nan")
+        print(f"{py_key:<15} vs {rust_attr:<20} right: {match_pct} mean diff: {mean_diff:.3f}")
+        if isinstance(match_pct, (float, int)) and match_pct < 100.0:
+            all_match = False
+    assert all_match, "Not all SVF arrays matched perfectly."
+
+
 def test_shadowing():
     repeats = 3
-
     dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp = make_test_arrays(resolution=1)
 
     def run_py():
@@ -58,23 +81,31 @@ def test_shadowing():
     vegsh, sh, vbshvegsh, wallsh, wallsun, wallshve, facesh, facesun = shadowingfunction_wallheight_23(
         dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0
     )
-
     result_rust = shadowing.shadowingfunction_wallheight_25(
         dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0, None, None
     )
 
-    # Calculate and print per-array right percentage
-    def pct(a, b):
-        return 100.0 * np.isclose(a, b, atol=0.001).sum() / a.size
-
-    print(f"veg_shadow_map right: {pct(vegsh, result_rust.veg_shadow_map):.1f}%")
-    print(f"bldg_shadow_map right: {pct(sh, result_rust.bldg_shadow_map):.1f}%")
-    print(f"vbshvegsh right: {pct(vbshvegsh, result_rust.vbshvegsh):.1f}%")
-    print(f"wallsh right: {pct(wallsh, result_rust.wallsh):.1f}%")
-    print(f"wallsun right: {pct(wallsun, result_rust.wallsun):.1f}%")
-    print(f"wallshve right: {pct(wallshve, result_rust.wallshve):.1f}%")
-    print(f"facesh right: {pct(facesh, result_rust.facesh):.1f}%")
-    print(f"facesun right: {pct(facesun, result_rust.facesun):.1f}%")
+    key_map = {
+        "veg_shadow_map": "veg_shadow_map",
+        "bldg_shadow_map": "bldg_shadow_map",
+        "vbshvegsh": "vbshvegsh",
+        "wallsh": "wallsh",
+        "wallsun": "wallsun",
+        "wallshve": "wallshve",
+        "facesh": "facesh",
+        "facesun": "facesun",
+    }
+    result_py = {
+        "veg_shadow_map": vegsh,
+        "bldg_shadow_map": sh,
+        "vbshvegsh": vbshvegsh,
+        "wallsh": wallsh,
+        "wallsun": wallsun,
+        "wallshve": wallshve,
+        "facesh": facesh,
+        "facesun": facesun,
+    }
+    compare_svf_results(result_py, result_rust, key_map, atol=0.1)
 
 
 # v40
@@ -104,23 +135,41 @@ def test_svf():
     )
 
     result_py = svfForProcessing153(dsm, vegdsm, vegdsm2, scale, 1)
-
     result_rust = skyview.calculate_svf_153(dsm, vegdsm, vegdsm2, scale, True)
 
-    # Calculate and print per-array right percentage
-    def pct(a, b):
-        return 100.0 * np.isclose(a, b, atol=0.001).sum() / a.size
+    # Map Python keys to Rust attribute names
+    key_map = {
+        "svf": "svf",
+        "svfE": "svf_east",
+        "svfS": "svf_south",
+        "svfW": "svf_west",
+        "svfN": "svf_north",
+        "svfveg": "svf_veg",
+        "svfEveg": "svf_veg_east",
+        "svfSveg": "svf_veg_south",
+        "svfWveg": "svf_veg_west",
+        "svfNveg": "svf_veg_north",
+        "svfaveg": "svf_aniso_veg",
+        "svfEaveg": "svf_aniso_veg_east",
+        "svfSaveg": "svf_aniso_veg_south",
+        "svfWaveg": "svf_aniso_veg_west",
+        "svfNaveg": "svf_aniso_veg_north",
+        "shmat": "shadow_matrix",
+        "vegshmat": "veg_shadow_matrix",
+        "vbshvegshmat": "vbshvegsh_matrix",
+    }
 
-    print(f"veg_shadow_map right: {pct(vegsh, result_rust.veg_shadow_map):.1f}%")
-    print(f"bldg_shadow_map right: {pct(sh, result_rust.bldg_shadow_map):.1f}%")
-    print(f"vbshvegsh right: {pct(vbshvegsh, result_rust.vbshvegsh):.1f}%")
-    print(f"wallsh right: {pct(wallsh, result_rust.wallsh):.1f}%")
-    print(f"wallsun right: {pct(wallsun, result_rust.wallsun):.1f}%")
-    print(f"wallshve right: {pct(wallshve, result_rust.wallshve):.1f}%")
-    print(f"facesh right: {pct(facesh, result_rust.facesh):.1f}%")
-    print(f"facesun right: {pct(facesun, result_rust.facesun):.1f}%")
+    compare_svf_results(result_py, result_rust, key_map, atol=0.1)
 
 
 # v40
 # svfForProcessing153: min=33.068s, max=33.068s, avg=33.068s
 # calculate_svf_153: min=13.082s, max=13.082s, avg=13.082s
+
+# v41
+# svfForProcessing153: min=33.686s, max=33.686s, avg=33.686s
+# calculate_svf_153: min=11.272s, max=11.272s, avg=11.272s
+
+# v43
+# svfForProcessing153: min=34.552s, max=34.552s, avg=34.552s
+# calculate_svf_153: min=10.588s, max=10.588s, avg=10.588s
