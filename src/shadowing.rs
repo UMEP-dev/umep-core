@@ -26,15 +26,15 @@ pub struct ShadowingResult {
     /// Vegetation Blocking Building Shadow: Indicates where vegetation prevents building shadow.
     pub vbshvegsh: Py<PyArray2<f64>>,
     #[pyo3(get)]
-    pub wallsh: Py<PyArray2<f64>>, // Shadowed wall height (by buildings)
+    pub wallsh: Option<Py<PyArray2<f64>>>, // Shadowed wall height (by buildings) - Optional
     #[pyo3(get)]
-    pub wallsun: Py<PyArray2<f64>>, // Sunlit wall height
+    pub wallsun: Option<Py<PyArray2<f64>>>, // Sunlit wall height - Optional
     #[pyo3(get)]
-    pub wallshve: Py<PyArray2<f64>>, // Wall height shadowed by vegetation
+    pub wallshve: Option<Py<PyArray2<f64>>>, // Wall height shadowed by vegetation - Optional
     #[pyo3(get)]
-    pub facesh: Py<PyArray2<f64>>, // Wall face shadow mask (1 if face away from sun)
+    pub facesh: Option<Py<PyArray2<f64>>>, // Wall face shadow mask (1 if face away from sun) - Optional
     #[pyo3(get)]
-    pub facesun: Py<PyArray2<f64>>, // Sunlit wall face mask (1 if face towards sun and not obstructed)
+    pub facesun: Option<Py<PyArray2<f64>>>, // Sunlit wall face mask (1 if face towards sun and not obstructed) - Optional
     #[pyo3(get)]
     /// Combined building and vegetation shadow height on walls (optional scheme).
     pub shade_on_wall: Option<Py<PyArray2<f64>>>,
@@ -224,8 +224,8 @@ fn shade_on_walls(
 /// * `scale` - Pixel size (meters)
 /// * `amaxvalue` - Maximum height difference in the DSM (optimization hint)
 /// * `bush` - Bush/low vegetation layer (binary or height)
-/// * `walls` - Wall height layer
-/// * `aspect` - Wall aspect/orientation layer (radians or degrees, consistent with azimuth)
+/// * `walls` - Optional wall height layer. If None, wall calculations are skipped.
+/// * `aspect` - Optional wall aspect/orientation layer (radians or degrees). Required if `walls` is provided.
 /// * `walls_scheme` - Optional alternative wall height layer for specific calculations
 /// * `aspect_scheme` - Optional alternative wall aspect layer
 ///
@@ -241,8 +241,8 @@ pub fn shadowingfunction_wallheight_25(
     scale: f64,
     amaxvalue: f64,
     bush: PyReadonlyArray2<f64>,
-    walls: PyReadonlyArray2<f64>,
-    aspect: PyReadonlyArray2<f64>,
+    walls: Option<PyReadonlyArray2<f64>>,  // Now optional
+    aspect: Option<PyReadonlyArray2<f64>>, // Now optional
     walls_scheme: Option<PyReadonlyArray2<f64>>,
     aspect_scheme: Option<PyReadonlyArray2<f64>>,
 ) -> PyResult<PyObject> {
@@ -251,32 +251,64 @@ pub fn shadowingfunction_wallheight_25(
     let veg_canopy_dsm_view = veg_canopy_dsm.as_array();
     let veg_trunk_dsm_view = veg_trunk_dsm.as_array();
     let bush_view = bush.as_array();
-    let walls_view = walls.as_array();
-    let aspect_view = aspect.as_array();
     let shape = dsm_view.shape();
-    // Ensure all core input arrays have the same dimensions.
-    let all_shapes = [
+
+    // Validate core non-optional arrays
+    let core_shapes = [
         veg_canopy_dsm_view.shape(),
         veg_trunk_dsm_view.shape(),
         bush_view.shape(),
-        walls_view.shape(),
-        aspect_view.shape(),
     ];
-    if all_shapes.iter().any(|&s| s != shape) {
+    if core_shapes.iter().any(|&s| s != shape) {
         return Err(pyo3::exceptions::PyValueError::new_err(
-            "All input arrays (dsm, veg*, bush, walls, aspect) must have the same shape.",
+            "Input arrays (dsm, veg*, bush) must have the same shape.",
         ));
     }
+
+    // Validate optional wall/aspect arrays if provided
+    let walls_view_opt = walls.as_ref().map(|w| w.as_array());
+    let aspect_view_opt = aspect.as_ref().map(|a| a.as_array());
+
+    if walls_view_opt.is_some() != aspect_view_opt.is_some() {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "Both 'walls' and 'aspect' must be provided together, or both must be None.",
+        ));
+    }
+
+    if let Some(walls_view) = walls_view_opt {
+        if walls_view.shape() != shape {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "walls must have the same shape as dsm.",
+            ));
+        }
+    }
+    if let Some(aspect_view) = aspect_view_opt {
+        if aspect_view.shape() != shape {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "aspect must have the same shape as dsm.",
+            ));
+        }
+    }
+
     // Validate optional scheme arrays if provided.
-    if let Some(walls_scheme_py) = &walls_scheme {
-        if walls_scheme_py.as_array().shape() != shape {
+    let walls_scheme_view_opt = walls_scheme.as_ref().map(|w| w.as_array());
+    let aspect_scheme_view_opt = aspect_scheme.as_ref().map(|a| a.as_array());
+
+    if walls_scheme_view_opt.is_some() != aspect_scheme_view_opt.is_some() {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "Both 'walls_scheme' and 'aspect_scheme' must be provided together, or both must be None.",
+        ));
+    }
+
+    if let Some(walls_scheme_view) = walls_scheme_view_opt {
+        if walls_scheme_view.shape() != shape {
             return Err(pyo3::exceptions::PyValueError::new_err(
                 "walls_scheme must have the same shape as dsm.",
             ));
         }
     }
-    if let Some(aspect_scheme_py) = &aspect_scheme {
-        if aspect_scheme_py.as_array().shape() != shape {
+    if let Some(aspect_scheme_view) = aspect_scheme_view_opt {
+        if aspect_scheme_view.shape() != shape {
             return Err(pyo3::exceptions::PyValueError::new_err(
                 "aspect_scheme must have the same shape as dsm.",
             ));
@@ -518,48 +550,62 @@ pub fn shadowingfunction_wallheight_25(
             *prop_veg_h = (*prop_veg_h - dsm_h).max(0.0) * mask; // Calculate difference, ensure non-negative, apply mask
         });
 
-    // Calculate wall shadows using the helper function with the main wall/aspect layers.
-    let (wallsh, wallsun, wallshve, facesh, facesun) = shade_on_walls(
-        azimuth_rad,
-        aspect_view,
-        walls_view,
-        dsm_view,
-        propagated_bldg_shadow_height.view(), // Final propagated building shadow height
-        propagated_veg_shadow_height.view(),  // Final vegetation shadow volume height
-    );
-
-    // --- Optional Scheme Logic ---
-    // If alternative wall/aspect schemes are provided, calculate an additional shadow metric.
+    // --- Wall Shadow Calculation (Conditional) ---
+    let mut wallsh_opt: Option<Array2<f64>> = None;
+    let mut wallsun_opt: Option<Array2<f64>> = None;
+    let mut wallshve_opt: Option<Array2<f64>> = None;
+    let mut facesh_opt: Option<Array2<f64>> = None;
+    let mut facesun_opt: Option<Array2<f64>> = None;
     let mut shade_on_wall_result: Option<Array2<f64>> = None;
-    if let (Some(walls_scheme_py), Some(aspect_scheme_py)) = (walls_scheme, aspect_scheme) {
-        let walls_scheme_view = walls_scheme_py.as_array();
-        let aspect_scheme_view = aspect_scheme_py.as_array();
 
-        // Call shade_on_walls again using the scheme layers.
-        // Note: Propagated shadow heights remain the same, only wall geometry changes.
-        let (
-            scheme_shadowed_wall_height,
-            _scheme_sunlit_wall_height,
-            scheme_veg_shadow_on_wall_height,
-            _scheme_facesh,
-            _scheme_facesun,
-        ) = shade_on_walls(
+    // Only calculate wall shadows if both walls and aspect were provided.
+    if let (Some(walls_view), Some(aspect_view)) = (walls_view_opt, aspect_view_opt) {
+        // Calculate wall shadows using the helper function with the main wall/aspect layers.
+        let (wallsh, wallsun, wallshve, facesh, facesun) = shade_on_walls(
             azimuth_rad,
-            aspect_scheme_view, // Use scheme aspect
-            walls_scheme_view,  // Use scheme walls
+            aspect_view,
+            walls_view,
             dsm_view,
-            propagated_bldg_shadow_height.view(),
-            propagated_veg_shadow_height.view(),
+            propagated_bldg_shadow_height.view(), // Final propagated building shadow height
+            propagated_veg_shadow_height.view(),  // Final vegetation shadow volume height
         );
+        wallsh_opt = Some(wallsh);
+        wallsun_opt = Some(wallsun);
+        wallshve_opt = Some(wallshve);
+        facesh_opt = Some(facesh);
+        facesun_opt = Some(facesun);
 
-        // Combine results: Calculate total shadow height on the scheme walls (max of building and veg shadow).
-        let mut shade_on_wall_combined = Array2::<f64>::zeros(scheme_shadowed_wall_height.dim());
-        Zip::from(&mut shade_on_wall_combined)
-            .and(&scheme_shadowed_wall_height)
-            .and(&scheme_veg_shadow_on_wall_height)
-            .par_for_each(|sow, &wsh, &wsv| *sow = f64::max(wsh, wsv)); // Element-wise maximum
+        // --- Optional Scheme Logic ---
+        // If alternative wall/aspect schemes are provided, calculate an additional shadow metric.
+        if let (Some(walls_scheme_view), Some(aspect_scheme_view)) =
+            (walls_scheme_view_opt, aspect_scheme_view_opt)
+        {
+            // Call shade_on_walls again using the scheme layers.
+            let (
+                scheme_shadowed_wall_height,
+                _scheme_sunlit_wall_height,
+                scheme_veg_shadow_on_wall_height,
+                _scheme_facesh,
+                _scheme_facesun,
+            ) = shade_on_walls(
+                azimuth_rad,
+                aspect_scheme_view, // Use scheme aspect
+                walls_scheme_view,  // Use scheme walls
+                dsm_view,
+                propagated_bldg_shadow_height.view(),
+                propagated_veg_shadow_height.view(),
+            );
 
-        shade_on_wall_result = Some(shade_on_wall_combined);
+            // Combine results: Calculate total shadow height on the scheme walls (max of building and veg shadow).
+            let mut shade_on_wall_combined =
+                Array2::<f64>::zeros(scheme_shadowed_wall_height.dim());
+            Zip::from(&mut shade_on_wall_combined)
+                .and(&scheme_shadowed_wall_height)
+                .and(&scheme_veg_shadow_on_wall_height)
+                .par_for_each(|sow, &wsh, &wsv| *sow = f64::max(wsh, wsv)); // Element-wise maximum
+
+            shade_on_wall_result = Some(shade_on_wall_combined);
+        }
     }
 
     // --- Prepare and Return Results ---
@@ -568,11 +614,12 @@ pub fn shadowingfunction_wallheight_25(
         veg_shadow_map: veg_shadow_map.into_pyarray(py).to_owned().into(),
         bldg_shadow_map: bldg_shadow_map.into_pyarray(py).to_owned().into(),
         vbshvegsh: vbshvegsh.into_pyarray(py).to_owned().into(),
-        wallsh: wallsh.into_pyarray(py).to_owned().into(),
-        wallsun: wallsun.into_pyarray(py).to_owned().into(),
-        wallshve: wallshve.into_pyarray(py).to_owned().into(),
-        facesh: facesh.into_pyarray(py).to_owned().into(),
-        facesun: facesun.into_pyarray(py).to_owned().into(),
+        // Map Option<Array2> to Option<Py<PyArray2>>
+        wallsh: wallsh_opt.map(|arr| arr.into_pyarray(py).to_owned().into()),
+        wallsun: wallsun_opt.map(|arr| arr.into_pyarray(py).to_owned().into()),
+        wallshve: wallshve_opt.map(|arr| arr.into_pyarray(py).to_owned().into()),
+        facesh: facesh_opt.map(|arr| arr.into_pyarray(py).to_owned().into()),
+        facesun: facesun_opt.map(|arr| arr.into_pyarray(py).to_owned().into()),
         shade_on_wall: shade_on_wall_result.map(|arr| arr.into_pyarray(py).to_owned().into()),
     };
 
