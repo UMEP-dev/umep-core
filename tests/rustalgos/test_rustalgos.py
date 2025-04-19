@@ -78,7 +78,7 @@ def test_svf():
     print_timing_stats("svfForProcessing153", times_py)
 
     def run_rust():
-        skyview.calculate_svf_153(dsm, vegdsm, vegdsm2, scale, True)
+        skyview.calculate_svf_153(dsm, vegdsm, vegdsm2, scale, True, 2)
 
     times_rust = timeit.repeat(run_rust, number=1, repeat=repeats)
     print_timing_stats("skyview.calculate_svf_153", times_rust)
@@ -89,7 +89,7 @@ def test_svf():
     # Run Python version
     result_py = svfForProcessing153(dsm, vegdsm, vegdsm2, scale, 1)
     # Run Rust version
-    result_rust = skyview.calculate_svf_153(dsm, vegdsm, vegdsm2, scale, True)
+    result_rust = skyview.calculate_svf_153(dsm, vegdsm, vegdsm2, scale, True, 2)
     # Compare results
     key_map = {
         "svf": "svf",
@@ -102,11 +102,11 @@ def test_svf():
         "svfSveg": "svf_veg_south",
         "svfWveg": "svf_veg_west",
         "svfNveg": "svf_veg_north",
-        "svfaveg": "svf_aniso_veg",
-        "svfEaveg": "svf_aniso_veg_east",
-        "svfSaveg": "svf_aniso_veg_south",
-        "svfWaveg": "svf_aniso_veg_west",
-        "svfNaveg": "svf_aniso_veg_north",
+        "svfaveg": "svf_vbssh_veg",
+        "svfEaveg": "svf_vbssh_veg_east",
+        "svfSaveg": "svf_vbssh_veg_south",
+        "svfWaveg": "svf_vbssh_veg_west",
+        "svfNaveg": "svf_vbssh_veg_north",
         "shmat": "shadow_matrix",
         "vegshmat": "veg_shadow_matrix",
         "vbshvegshmat": "vbshvegsh_matrix",
