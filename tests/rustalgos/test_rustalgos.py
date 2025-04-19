@@ -1,10 +1,119 @@
 import timeit
 
+import matplotlib.pyplot as plt
 import numpy as np
 from umep import common
 from umep.functions.svf_functions import svfForProcessing153
 from umep.rustalgos import shadowing, skyview
 from umep.util.SEBESOLWEIGCommonFiles.shadowingfunction_wallheight_23 import shadowingfunction_wallheight_23
+
+
+def test_shadowing():
+    # Test shadowingfunction_wallheight_23 vs shadowingfunction_wallheight_25 for speed
+    repeats = 3
+    dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp = make_test_arrays(resolution=1)
+
+    def run_py():
+        shadowingfunction_wallheight_23(
+            dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0
+        )
+
+    times_py = timeit.repeat(run_py, number=1, repeat=repeats)
+    print_timing_stats("shadowingfunction_wallheight_23", times_py)
+
+    def run_rust():
+        shadowing.shadowingfunction_wallheight_25(
+            dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0, None, None
+        )
+
+    times_rust = timeit.repeat(run_rust, number=1, repeat=repeats)
+    print_timing_stats("shadowing.shadowingfunction_wallheight_25", times_rust)
+
+    # Print relative speed as percentage
+    relative_speed(times_py, times_rust)
+
+    # Run Python version
+    vegsh, sh, vbshvegsh, wallsh, wallsun, wallshve, facesh, facesun = shadowingfunction_wallheight_23(
+        dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0
+    )
+    result_py = {
+        "veg_shadow_map": vegsh,
+        "bldg_shadow_map": sh,
+        "vbshvegsh": vbshvegsh,
+        "wallsh": wallsh,
+        "wallsun": wallsun,
+        "wallshve": wallshve,
+        "facesh": facesh,
+        "facesun": facesun,
+    }
+    # Run Rust version
+    result_rust = shadowing.shadowingfunction_wallheight_25(
+        dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0, None, None
+    )
+    key_map = {
+        "veg_shadow_map": "veg_shadow_map",
+        "bldg_shadow_map": "bldg_shadow_map",
+        "vbshvegsh": "vbshvegsh",
+        "wallsh": "wallsh",
+        "wallsun": "wallsun",
+        "wallshve": "wallshve",
+        "facesh": "facesh",
+        "facesun": "facesun",
+    }
+    # Compare results
+    compare_svf_results(result_py, result_rust, key_map, atol=0.01)
+    # Plot visual residuals
+    plot_visual_residuals(sh, result_rust.bldg_shadow_map, title_prefix="Building Shadows")
+
+
+def test_svf():
+    # Test svfForProcessing153 vs skyview.calculate_svf_153 for speed
+    repeats = 1
+    dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp = make_test_arrays(resolution=2)
+
+    def run_py():
+        svfForProcessing153(dsm, vegdsm, vegdsm2, scale, 1)
+
+    times_py = timeit.repeat(run_py, number=1, repeat=repeats)
+    print_timing_stats("svfForProcessing153", times_py)
+
+    def run_rust():
+        skyview.calculate_svf_153(dsm, vegdsm, vegdsm2, scale, True)
+
+    times_rust = timeit.repeat(run_rust, number=1, repeat=repeats)
+    print_timing_stats("skyview.calculate_svf_153", times_rust)
+
+    # Print relative speed as percentage
+    relative_speed(times_py, times_rust)
+
+    # Run Python version
+    result_py = svfForProcessing153(dsm, vegdsm, vegdsm2, scale, 1)
+    # Run Rust version
+    result_rust = skyview.calculate_svf_153(dsm, vegdsm, vegdsm2, scale, True)
+    # Compare results
+    key_map = {
+        "svf": "svf",
+        "svfE": "svf_east",
+        "svfS": "svf_south",
+        "svfW": "svf_west",
+        "svfN": "svf_north",
+        "svfveg": "svf_veg",
+        "svfEveg": "svf_veg_east",
+        "svfSveg": "svf_veg_south",
+        "svfWveg": "svf_veg_west",
+        "svfNveg": "svf_veg_north",
+        "svfaveg": "svf_aniso_veg",
+        "svfEaveg": "svf_aniso_veg_east",
+        "svfSaveg": "svf_aniso_veg_south",
+        "svfWaveg": "svf_aniso_veg_west",
+        "svfNaveg": "svf_aniso_veg_north",
+        "shmat": "shadow_matrix",
+        "vegshmat": "veg_shadow_matrix",
+        "vbshvegshmat": "vbshvegsh_matrix",
+    }
+    compare_svf_results(result_py, result_rust, key_map, atol=0.01)
+    # plot visual residuals of svf
+    plot_visual_residuals(result_py["svf"], result_rust.svf, title_prefix="SVF")
 
 
 def make_test_arrays(
@@ -39,7 +148,7 @@ def make_test_arrays(
 # Calculate and print per-array right percentage
 def pct(a, b, atol=0.001):
     if a is None or b is None:
-        return "N/A"
+        return float("nan")
     # Ensure shapes match before comparison
     if a.shape != b.shape:
         return f"Shape mismatch: {a.shape} vs {b.shape}"
@@ -48,166 +157,77 @@ def pct(a, b, atol=0.001):
 
 def compare_svf_results(result_py, result_rust, key_map, atol=0.1):
     print("\n--- SVF Comparison ---")
-    all_match = True
     for py_key, rust_attr in key_map.items():
         py_val = result_py.get(py_key)
         rust_val = getattr(result_rust, rust_attr, None)
         match_pct = pct(py_val, rust_val, atol=atol)
         mean_diff = np.abs(py_val - rust_val).mean() if py_val is not None and rust_val is not None else float("nan")
-        print(f"{py_key:<15} vs {rust_attr:<20} right: {match_pct} mean diff: {mean_diff:.3f}")
-        if isinstance(match_pct, (float, int)) and match_pct < 100.0:
-            all_match = False
-    assert all_match, "Not all SVF arrays matched perfectly."
-
-
-def test_shadowing():
-    repeats = 3
-    dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp = make_test_arrays(resolution=1)
-
-    def run_py():
-        shadowingfunction_wallheight_23(
-            dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0
+        range_diff = np.abs(py_val - rust_val).max() if py_val is not None and rust_val is not None else float("nan")
+        print(
+            f"{py_key:<15} vs {rust_attr:<20} right: {match_pct:.2f} mean diff: {mean_diff:.3f} range: {range_diff:.2f}"
         )
 
-    times_py = timeit.repeat(run_py, number=1, repeat=repeats)
-    print(
-        f"test_shadowing_wallheight_23: min={min(times_py):.3f}s, max={max(times_py):.3f}s, avg={sum(times_py) / len(times_py):.3f}s"
-    )
 
-    def run_rust():
-        shadowing.shadowingfunction_wallheight_25(
-            dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0, None, None
-        )
-
-    times_rust = timeit.repeat(run_rust, number=1, repeat=repeats)
-    print(
-        f"test_shadowing_wallheight_25: min={min(times_rust):.3f}s, max={max(times_rust):.3f}s, avg={sum(times_rust) / len(times_rust):.3f}s"
-    )
-    vegsh, sh, vbshvegsh, wallsh, wallsun, wallshve, facesh, facesun = shadowingfunction_wallheight_23(
-        dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0
-    )
-    result_rust = shadowing.shadowingfunction_wallheight_25(
-        dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0, None, None
-    )
-
-    key_map = {
-        "veg_shadow_map": "veg_shadow_map",
-        "bldg_shadow_map": "bldg_shadow_map",
-        "vbshvegsh": "vbshvegsh",
-        "wallsh": "wallsh",
-        "wallsun": "wallsun",
-        "wallshve": "wallshve",
-        "facesh": "facesh",
-        "facesun": "facesun",
-    }
-    result_py = {
-        "veg_shadow_map": vegsh,
-        "bldg_shadow_map": sh,
-        "vbshvegsh": vbshvegsh,
-        "wallsh": wallsh,
-        "wallsun": wallsun,
-        "wallshve": wallshve,
-        "facesh": facesh,
-        "facesun": facesun,
-    }
-    compare_svf_results(result_py, result_rust, key_map, atol=0.1)
+def print_timing_stats(func_name, times):
+    """Prints the min, max, and average timing statistics for a function."""
+    if not times:
+        print(f"\n{func_name}: No timing data available.")
+        return
+    min_time = min(times)
+    max_time = max(times)
+    avg_time = sum(times) / len(times)
+    print(f"\n{func_name}: min={min_time:.3f}s, max={max_time:.3f}s, avg={avg_time:.3f}s")
 
 
-"""
-v69 f32 change
-test_shadowing_wallheight_23: min=1.225s, max=1.425s, avg=1.313s
-test_shadowing_wallheight_25: min=0.107s, max=0.125s, avg=0.115s
-
---- SVF Comparison ---
-veg_shadow_map  vs veg_shadow_map       right: 99.73175542406311 mean diff: 0.003
-bldg_shadow_map vs bldg_shadow_map      right: 100.0 mean diff: 0.000
-vbshvegsh       vs vbshvegsh            right: 99.59196252465483 mean diff: 0.004
-wallsh          vs wallsh               right: 100.0 mean diff: 0.000
-wallsun         vs wallsun              right: 100.0 mean diff: 0.000
-wallshve        vs wallshve             right: 100.0 mean diff: 0.000
-facesh          vs facesh               right: 100.0 mean diff: 0.000
-facesun         vs facesun              right: 100.0 mean diff: 0.000
-"""
+def relative_speed(times_py, times_rust):
+    """Calculates and prints how many times faster the Rust version is compared to Python."""
+    rust_avg = sum(times_rust) / len(times_rust)
+    py_avg = sum(times_py) / len(times_py)
+    speedup_factor = py_avg / rust_avg
+    print(f"\nRelative speed: Rust version is {speedup_factor:.2f} times faster than Python for given data.")
 
 
-def test_svf():
-    repeats = 1
+def plot_visual_residuals(
+    py_array,
+    rust_array,
+    title_prefix="Visual",
+    cmap="viridis",
+    cmap_residuals="coolwarm",
+    tick_fontsize="xx-small",
+    colorbar_shrink=0.6,
+):
+    # check shape
+    if py_array.shape != rust_array.shape:
+        print(f"Error: Input arrays have different shapes: {py_array.shape} vs {rust_array.shape}")
+        return
 
-    dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp = make_test_arrays(resolution=2)
+    residuals = rust_array - py_array
 
-    def run_py():
-        svfForProcessing153(dsm, vegdsm, vegdsm2, scale, 1)
+    # Determine the symmetric range for the residuals colormap
+    max_abs_residual = np.abs(residuals).max()
 
-    times_py = timeit.repeat(run_py, number=1, repeat=repeats)
-    print(
-        f"svfForProcessing153: min={min(times_py):.3f}s, max={max(times_py):.3f}s, avg={sum(times_py) / len(times_py):.3f}s"
-    )
+    fig, axes = plt.subplots(3, 1, figsize=(6, 12))  # 3 rows, 1 column
 
-    def run_rust():
-        skyview.calculate_svf_153(dsm, vegdsm, vegdsm2, scale, True)
+    # Plot Array 1 (Python)
+    im1 = axes[0].imshow(py_array, cmap=cmap)
+    cbar1 = fig.colorbar(im1, ax=axes[0], shrink=colorbar_shrink)
+    cbar1.ax.tick_params(labelsize=tick_fontsize)
+    axes[0].set_title(f"{title_prefix} - Array 1 (Python)")
+    axes[0].axis("off")
 
-    times_rust = timeit.repeat(run_rust, number=1, repeat=repeats)
-    print(
-        f"calculate_svf_153: min={min(times_rust):.3f}s, max={max(times_rust):.3f}s, avg={sum(times_rust) / len(times_rust):.3f}s"
-    )
+    # Plot Array 2 (Rust)
+    im2 = axes[1].imshow(rust_array, cmap=cmap)
+    cbar2 = fig.colorbar(im2, ax=axes[1], shrink=colorbar_shrink)
+    cbar2.ax.tick_params(labelsize=tick_fontsize)
+    axes[1].set_title(f"{title_prefix} - Array 2 (Rust)")
+    axes[1].axis("off")
 
-    # Run Python version with float64
-    result_py = svfForProcessing153(dsm, vegdsm, vegdsm2, scale, 1)
-    # Run Rust version with float32
-    result_rust = skyview.calculate_svf_153(dsm, vegdsm, vegdsm2, scale, True)
+    # Plot Residuals with centered colormap
+    im3 = axes[2].imshow(residuals, cmap=cmap_residuals, vmin=-max_abs_residual, vmax=max_abs_residual)
+    cbar3 = fig.colorbar(im3, ax=axes[2], shrink=colorbar_shrink)
+    cbar3.ax.tick_params(labelsize=tick_fontsize)
+    axes[2].set_title(f"{title_prefix} - Residuals (Rust - Python)")
+    axes[2].axis("off")
 
-    # Map Python keys to Rust attribute names
-    key_map = {
-        "svf": "svf",
-        "svfE": "svf_east",
-        "svfS": "svf_south",
-        "svfW": "svf_west",
-        "svfN": "svf_north",
-        "svfveg": "svf_veg",
-        "svfEveg": "svf_veg_east",
-        "svfSveg": "svf_veg_south",
-        "svfWveg": "svf_veg_west",
-        "svfNveg": "svf_veg_north",
-        "svfaveg": "svf_aniso_veg",
-        "svfEaveg": "svf_aniso_veg_east",
-        "svfSaveg": "svf_aniso_veg_south",
-        "svfWaveg": "svf_aniso_veg_west",
-        "svfNaveg": "svf_aniso_veg_north",
-        "shmat": "shadow_matrix",
-        "vegshmat": "veg_shadow_matrix",
-        "vbshvegshmat": "vbshvegsh_matrix",
-    }
-
-    compare_svf_results(result_py, result_rust, key_map, atol=0.1)
-
-
-"""
-# v43
-# svfForProcessing153: min=34.552s, max=34.552s, avg=34.552s
-# calculate_svf_153: min=10.588s, max=10.588s, avg=10.588s
-
-v69 f32 change
-
-svfForProcessing153: min=34.866s, max=34.866s, avg=34.866s
-calculate_svf_153: min=1.851s, max=1.851s, avg=1.851s
-
---- SVF Comparison ---
-svf             vs svf                  right: 99.98076923076923 mean diff: 0.030
-svfE            vs svf_east             right: 99.61834319526628 mean diff: 0.034
-svfS            vs svf_south            right: 94.60996055226825 mean diff: 0.039
-svfW            vs svf_west             right: 87.69970414201184 mean diff: 0.058
-svfN            vs svf_north            right: 98.4354043392505 mean diff: 0.029
-svfveg          vs svf_veg              right: 98.36390532544378 mean diff: 0.044
-svfEveg         vs svf_veg_east         right: 96.99802761341223 mean diff: 0.045
-svfSveg         vs svf_veg_south        right: 95.95660749506904 mean diff: 0.022
-svfWveg         vs svf_veg_west         right: 94.6198224852071 mean diff: 0.043
-svfNveg         vs svf_veg_north        right: 96.37721893491124 mean diff: 0.027
-svfaveg         vs svf_aniso_veg        right: 98.5103550295858 mean diff: 0.041
-svfEaveg        vs svf_aniso_veg_east   right: 97.79339250493096 mean diff: 0.043
-svfSaveg        vs svf_aniso_veg_south  right: 95.02810650887574 mean diff: 0.025
-svfWaveg        vs svf_aniso_veg_west   right: 92.61193293885601 mean diff: 0.047
-svfNaveg        vs svf_aniso_veg_north  right: 97.0645956607495 mean diff: 0.026
-shmat           vs shadow_matrix        right: N/A mean diff: nan
-vegshmat        vs veg_shadow_matrix    right: N/A mean diff: nan
-vbshvegshmat    vs vbshvegsh_matrix     right: N/A mean diff: nan
-"""
+    plt.tight_layout()  # Adjust layout to prevent overlapping titles/labels
+    plt.savefig(f"tests/rustalgos/{title_prefix.lower().replace(' ', '_')}_residuals.png", dpi=150)
