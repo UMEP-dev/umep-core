@@ -96,7 +96,8 @@ def generate_svf(
     dsm_rast_f32 = dsm_rast.astype(np.float32)
     cdsm_rast_f32 = cdsm_rast.astype(np.float32)
     cdsm_2_rast_f32 = cdsm_2_rast.astype(np.float32)
-    ret = skyview.calculate_svf_153(dsm_rast_f32, cdsm_rast_f32, cdsm_2_rast_f32, dsm_scale, use_cdsm)
+    # 2 = 153 patches
+    ret = skyview.calculate_svf(dsm_rast_f32, cdsm_rast_f32, cdsm_2_rast_f32, dsm_scale, use_cdsm, 2)
 
     # Access results using attributes instead of dictionary keys
     svfbu = ret.svf

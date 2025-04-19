@@ -64,6 +64,13 @@ def test_shadowing():
     compare_svf_results(result_py, result_rust, key_map, atol=0.01)
     # Plot visual residuals
     plot_visual_residuals(sh, result_rust.bldg_shadow_map, title_prefix="Building Shadows")
+    plot_visual_residuals(vegsh, result_rust.veg_shadow_map, title_prefix="Vegetation Shadows")
+    plot_visual_residuals(vbshvegsh, result_rust.vbshvegsh, title_prefix="vbshvegsh Shadows")
+    plot_visual_residuals(wallsh, result_rust.wallsh, title_prefix="wallsh Shadows")
+    plot_visual_residuals(wallsun, result_rust.wallsun, title_prefix="wallsun Shadows")
+    plot_visual_residuals(wallshve, result_rust.wallshve, title_prefix="wallshve Shadows")
+    plot_visual_residuals(facesh, result_rust.facesh, title_prefix="facesh Shadows")
+    plot_visual_residuals(facesun, result_rust.facesun, title_prefix="facesun Shadows")
 
 
 def test_svf():
@@ -78,10 +85,10 @@ def test_svf():
     print_timing_stats("svfForProcessing153", times_py)
 
     def run_rust():
-        skyview.calculate_svf_153(dsm, vegdsm, vegdsm2, scale, True, 2)
+        skyview.calculate_svf(dsm, vegdsm, vegdsm2, scale, True, 2)
 
     times_rust = timeit.repeat(run_rust, number=1, repeat=repeats)
-    print_timing_stats("skyview.calculate_svf_153", times_rust)
+    print_timing_stats("skyview.calculate_svf", times_rust)
 
     # Print relative speed as percentage
     relative_speed(times_py, times_rust)
@@ -89,7 +96,7 @@ def test_svf():
     # Run Python version
     result_py = svfForProcessing153(dsm, vegdsm, vegdsm2, scale, 1)
     # Run Rust version
-    result_rust = skyview.calculate_svf_153(dsm, vegdsm, vegdsm2, scale, True, 2)
+    result_rust = skyview.calculate_svf(dsm, vegdsm, vegdsm2, scale, True, 2)
     # Compare results
     key_map = {
         "svf": "svf",
@@ -112,8 +119,32 @@ def test_svf():
         "vbshvegshmat": "vbshvegsh_matrix",
     }
     compare_svf_results(result_py, result_rust, key_map, atol=0.01)
-    # plot visual residuals of svf
-    plot_visual_residuals(result_py["svf"], result_rust.svf, title_prefix="SVF")
+
+    # Plot visual residuals for all comparable SVF components explicitly
+    print("\nGenerating residual plots...")
+    plot_visual_residuals(result_py["svf"], result_rust.svf, title_prefix="Svf")
+    plot_visual_residuals(result_py["svfE"], result_rust.svf_east, title_prefix="Svf East")
+    plot_visual_residuals(result_py["svfS"], result_rust.svf_south, title_prefix="Svf South")
+    plot_visual_residuals(result_py["svfW"], result_rust.svf_west, title_prefix="Svf West")
+    plot_visual_residuals(result_py["svfN"], result_rust.svf_north, title_prefix="Svf North")
+    plot_visual_residuals(result_py["svfveg"], result_rust.svf_veg, title_prefix="Svf Veg")
+    plot_visual_residuals(result_py["svfEveg"], result_rust.svf_veg_east, title_prefix="Svf East Veg")
+    plot_visual_residuals(result_py["svfSveg"], result_rust.svf_veg_south, title_prefix="Svf South Veg")
+    plot_visual_residuals(result_py["svfWveg"], result_rust.svf_veg_west, title_prefix="Svf West Veg")
+    plot_visual_residuals(result_py["svfNveg"], result_rust.svf_veg_north, title_prefix="Svf North Veg")
+    plot_visual_residuals(result_py["svfaveg"], result_rust.svf_vbssh_veg, title_prefix="Svf Anisotropic Veg")
+    plot_visual_residuals(
+        result_py["svfEaveg"], result_rust.svf_vbssh_veg_east, title_prefix="Svf East Anisotropic Veg"
+    )
+    plot_visual_residuals(
+        result_py["svfSaveg"], result_rust.svf_vbssh_veg_south, title_prefix="Svf South Anisotropic Veg"
+    )
+    plot_visual_residuals(
+        result_py["svfWaveg"], result_rust.svf_vbssh_veg_west, title_prefix="Svf West Anisotropic Veg"
+    )
+    plot_visual_residuals(
+        result_py["svfNaveg"], result_rust.svf_vbssh_veg_north, title_prefix="Svf North Anisotropic Veg"
+    )
 
 
 def make_test_arrays(
@@ -162,7 +193,7 @@ def compare_svf_results(result_py, result_rust, key_map, atol=0.1):
         rust_val = getattr(result_rust, rust_attr, None)
         match_pct = pct(py_val, rust_val, atol=atol)
         mean_diff = np.abs(py_val - rust_val).mean() if py_val is not None and rust_val is not None else float("nan")
-        range_diff = np.abs(py_val - rust_val).max() if py_val is not None and rust_val is not None else float("nan")
+        range_diff = np.nanmax(py_val) - np.nanmin(py_val) if py_val is not None else float("nan")
         print(
             f"{py_key:<15} vs {rust_attr:<20} right: {match_pct:.2f} mean diff: {mean_diff:.3f} range: {range_diff:.2f}"
         )

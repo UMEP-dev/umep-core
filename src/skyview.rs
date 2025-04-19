@@ -9,22 +9,20 @@ use crate::shadowing::{calculate_shadows_rust, ShadowingResultRust};
 
 // Correction factor applied in finalize step
 const LAST_ANNULUS_CORRECTION: f32 = 3.0459e-4;
-// Percentile for amaxvalue calculation
-const AMAXVALUE_PERCENTILE: f32 = 0.995;
 
 // Struct to hold patch configurations
 
 pub struct PatchInfo {
     pub altitude: f32,
     pub azimuth: f32,
-    pub azimuth_interval: f32,
-    pub azimuth_interval_aniso: f32,
+    pub azimuth_patches: f32,
+    pub azimuth_patches_aniso: f32,
     pub annulino_start: i32,
     pub annulino_end: i32,
 }
 
 fn create_patches(option: u8) -> Vec<PatchInfo> {
-    let (annulino, altitudes, azi_starts, patches_in_band) = match option {
+    let (annulino, altitudes, azi_starts, azimuth_patches) = match option {
         1 => (
             vec![0, 12, 24, 36, 48, 60, 72, 84, 90],
             vec![6, 18, 30, 42, 54, 66, 78, 90],
@@ -51,37 +49,28 @@ fn create_patches(option: u8) -> Vec<PatchInfo> {
         ),
         _ => panic!("Unsupported patch option: {}", option),
     };
+
     // Iterate over the patch configurations and create PatchInfo instances
     let mut patches: Vec<PatchInfo> = Vec::new();
     for i in 0..altitudes.len() {
-        let azimuth_interval = 360.0 / patches_in_band[i] as f32;
-        for j in 0..patches_in_band[i] as usize {
+        let azimuth_interval = 360.0 / azimuth_patches[i] as f32;
+        for j in 0..azimuth_patches[i] as usize {
+            // Calculate azimuth based on the start and interval
+            // Use rem_euclid to ensure azimuth is within [0, 360)
+            let azimuth =
+                (azi_starts[i] as f32 + j as f32 * azimuth_interval as f32).rem_euclid(360.0);
             patches.push(PatchInfo {
                 altitude: altitudes[i] as f32,
-                // Calculate azimuth based on the start and interval
-                // Use rem_euclid to ensure azimuth is within [0, 360)
-                azimuth: (azi_starts[i] as f32 + j as f32 * azimuth_interval as f32)
-                    .rem_euclid(360.0),
-                azimuth_interval,
-                // Calculate anisotropic azimuth intervals (ceil(interval/2))
-                azimuth_interval_aniso: (azimuth_interval / 2.0).ceil(),
+                azimuth,
+                azimuth_patches: azimuth_patches[i] as f32,
+                // Calculate anisotropic azimuth patches (ceil(interval/2))
+                azimuth_patches_aniso: (azimuth_patches[i] as f32 / 2.0).ceil(),
                 annulino_start: annulino[i],
                 annulino_end: annulino[i + 1],
             });
         }
     }
     patches
-}
-
-// Calculate weight for an annulus
-fn annulus_weight(altitude: i32, aziinterval: f32) -> f32 {
-    let n = 90.0;
-    let steprad = (360.0 / aziinterval) * (PI / 180.0);
-    let annulus = 91.0 - altitude as f32;
-    let w = (1.0 / (2.0 * PI))
-        * (PI / (2.0 * n)).sin()
-        * ((PI * (2.0 * annulus - 1.0)) / (2.0 * n)).sin();
-    steprad * w
 }
 
 // Structure to hold SVF results for Python
@@ -235,9 +224,7 @@ impl PatchContribution {
             self.svf_vbssh_veg_s.mapv_inplace(|x| x.min(1.0));
             self.svf_vbssh_veg_w.mapv_inplace(|x| x.min(1.0));
         }
-        // No need for an 'else' block to create zero arrays, they are already zero
 
-        // Create Python objects - use .unbind() instead of .to_owned()
         Py::new(
             py,
             SvfResult {
@@ -262,68 +249,30 @@ impl PatchContribution {
 }
 
 // --- Helper Functions ---
-
-/// Calculate the maximum height value used for shadow calculations.
-/// Considers DSM percentile and maximum vegetation height if applicable.
 fn calculate_amaxvalue(dsm: ArrayView2<f32>, vegdem: ArrayView2<f32>, usevegdem: bool) -> f32 {
-    // Find percentile of DSM heights
-    let mut dsm_flat = dsm.iter().cloned().collect::<Vec<f32>>();
-    dsm_flat.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)); // Handle potential NaNs
-    let percentile_idx = (dsm_flat.len() as f32 * AMAXVALUE_PERCENTILE)
-        .floor()
-        .min(dsm_flat.len() as f32 - 1.0) as usize; // Ensure index is within bounds
-    let percentile_val = dsm_flat.get(percentile_idx).cloned().unwrap_or(f32::MAX);
-
-    // Include vegetation height if using vegetation
-    let max_val_f32 = if usevegdem {
-        let vegmax = vegdem
-            .iter()
-            .fold(f32::NEG_INFINITY, |max, &val| max.max(val));
-        percentile_val.max(vegmax)
+    let dsm_max = dsm.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    if usevegdem {
+        let vegmax = vegdem.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        dsm_max.max(vegmax)
     } else {
-        percentile_val
-    };
-
-    max_val_f32 as f32 // Convert final value to f32
+        dsm_max
+    }
 }
 
-/// Prepare vegetation-related input arrays (bush mask, adjusted canopy, adjusted trunk) for shadow calculation.
-/// Converts inputs to f32.
-fn prepare_vegetation_inputs(
-    dsm: ArrayView2<f32>,
-    vegdem: ArrayView2<f32>,
-    vegdem2: ArrayView2<f32>,
-) -> (Array2<f32>, Array2<f32>, Array2<f32>) {
-    // Add DSM heights to vegetation heights
-    let mut vegdem_adj = vegdem.to_owned();
-    let mut vegdem2_adj = vegdem2.to_owned();
-
-    Zip::from(&mut vegdem_adj)
-        .and(&mut vegdem2_adj)
-        .and(dsm)
-        .par_for_each(|v1, v2, &d| {
-            *v1 += d;
-            if *v1 == d {
-                *v1 = 0.0; // Set to 0 if only DSM height (no veg)
-            }
-            *v2 += d;
-            if *v2 == d {
-                *v2 = 0.0; // Set to 0 if only DSM height (no veg)
-            }
-        });
-
+fn prepare_bushes(vegdem: ArrayView2<f32>, vegdem2: ArrayView2<f32>) -> (Array2<f32>) {
+    let vegdem_adj = vegdem.to_owned();
+    let vegdem2_adj = vegdem2.to_owned();
     // Calculate bush areas (vegetation without trunks)
     let bush_areas = Zip::from(&vegdem_adj)
         .and(&vegdem2_adj)
-        .par_map_collect(|&v1, &v2| if v1 > 0.0 && v2 == 0.0 { v1 } else { 0.0 });
-
-    (bush_areas, vegdem_adj, vegdem2_adj)
+        .par_map_collect(|&v1, &v2| if v2 > 0.0 { 0.0 } else { v1 });
+    bush_areas
 }
 
 // --- Main Calculation Function ---
 // Calculate SVF with 153 patches (equivalent to Python's svfForProcessing153)
 #[pyfunction]
-pub fn calculate_svf_153(
+pub fn calculate_svf(
     py: Python,
     dsm_py: PyReadonlyArray2<f32>,
     vegdem_py: PyReadonlyArray2<f32>,
@@ -345,14 +294,8 @@ pub fn calculate_svf_153(
     // Calculate maximum height for shadow calculations
     let amaxvalue = calculate_amaxvalue(dsm_f32, vegdem_f32, usevegdem);
 
-    // Prepare adjusted vegetation arrays (f32) if needed
-    let (bush_f32, vegdem_adj_f32, vegdem2_adj_f32) = if usevegdem {
-        let (bush, vegdem_adj, vegdem2_adj) =
-            prepare_vegetation_inputs(dsm_f32.view(), vegdem_f32.view(), vegdem2_f32.view());
-        (Some(bush), Some(vegdem_adj), Some(vegdem2_adj))
-    } else {
-        (None, None, None)
-    };
+    // Prepare bushes
+    let bush_f32 = prepare_bushes(vegdem_f32.view(), vegdem2_f32.view());
 
     // Create sky patches (use patch_option argument)
     let patches = create_patches(patch_option);
@@ -364,88 +307,109 @@ pub fn calculate_svf_153(
             // Get views for shadowing function call (use f32 versions)
             let dsm_view = dsm_f32.view();
             // Use Option::as_ref().map() to get Option<ArrayView>
-            let vegdem_adj_view = vegdem_adj_f32.as_ref().map(|v| v.view());
-            let vegdem2_adj_view = vegdem2_adj_f32.as_ref().map(|v| v.view());
-            let bush_view = bush_f32.as_ref().map(|b| b.view());
-
-            // Provide default empty views if needed (shadowing expects ArrayView, not Option)
-            // Note: This part is slightly awkward. Ideally, shadowing would handle Options.
-            let default_empty_f32 = Array2::<f32>::zeros((0, 0));
-            let bush_view_for_calc = bush_view.unwrap_or_else(|| default_empty_f32.view());
-            let vegdem_adj_view_for_calc =
-                vegdem_adj_view.unwrap_or_else(|| default_empty_f32.view());
-            let vegdem2_adj_view_for_calc =
-                vegdem2_adj_view.unwrap_or_else(|| default_empty_f32.view());
+            let vegdem_adj_view = vegdem_f32.view();
+            let vegdem2_adj_view = vegdem2_f32.view();
+            let bush_view = bush_f32.view();
 
             // --- Call shadowing function ---
             let shadow_result: ShadowingResultRust = calculate_shadows_rust(
                 dsm_view,
-                vegdem_adj_view_for_calc, // Use canopy DSM (vegdem adjusted)
-                vegdem2_adj_view_for_calc, // Use trunk DSM (vegdem2 adjusted)
-                patch.azimuth,            // f32
-                patch.altitude,           // f32
-                scale,                    // f32
-                amaxvalue,                // f32
-                bush_view_for_calc,       // ArrayView2<f32>
-                None,                     // walls_view_opt
-                None,                     // aspect_view_opt
-                None,                     // walls_scheme_view_opt
-                None,                     // aspect_scheme_view_opt
+                vegdem_adj_view,  // Use canopy DSM (vegdem adjusted)
+                vegdem2_adj_view, // Use trunk DSM (vegdem2 adjusted)
+                patch.azimuth,    // f32
+                patch.altitude,   // f32
+                scale,            // f32
+                amaxvalue,        // f32
+                bush_view,        // ArrayView2<f32>
+                None,             // walls_view_opt
+                None,             // aspect_view_opt
+                None,             // walls_scheme_view_opt
+                None,             // aspect_scheme_view_opt
             );
-            // Get views from shadow_result
-            let sh_view = shadow_result.bldg_shadow_map.view();
-            let vegsh_view = shadow_result.veg_shadow_map.view();
-            let vbshvegsh_view = shadow_result.vbshvegsh.view();
 
             // --- Accumulate results ---
             let mut contribution = PatchContribution::zeros(rows, cols);
 
+            // Shadow results are already f32
+            let sh_view = shadow_result.bldg_shadow_map.view(); // Directly use the view
+
+            // --- Pre-calculate altitude-dependent part of weights ---
+            let n = 90.0; // Constant from annulus_weight
+            let common_w_factor = (1.0 / (2.0 * PI)) * (PI / (2.0 * n)).sin(); // Constant part of w
+
+            // Pre-calculate step radians for this patch
+            let steprad_iso = (360.0 / patch.azimuth_patches) * (PI / 180.0);
+            let steprad_aniso = (360.0 / patch.azimuth_patches_aniso) * (PI / 180.0);
+
+            // --- Loop through altitudes for this patch ---
             for altitude in patch.annulino_start..=patch.annulino_end {
-                // Accumulate building SVF
-                let weight = annulus_weight(altitude, patch.azimuth_interval);
-                contribution.svf.scaled_add(weight, &sh_view);
-                // Accumulate directional building SVF
-                let weight_aniso = annulus_weight(altitude, patch.azimuth_interval_aniso);
+                // Calculate altitude-specific part of weight calculation
+                let annulus = 91.0 - altitude as f32;
+                let sin_term = ((PI * (2.0 * annulus - 1.0)) / (2.0 * n)).sin();
+                let common_w_part = common_w_factor * sin_term; // Full w without steprad
+
+                // Calculate final weights for this altitude
+                let weight_iso = steprad_iso * common_w_part; // Isotropic weight
+                let weight_aniso = steprad_aniso * common_w_part; // Anisotropic weight
+
+                // Accumulate building SVF (Isotropic)
+                contribution.svf.scaled_add(weight_iso, &sh_view);
+
+                // Accumulate directional building SVF (Anisotropic)
                 if patch.azimuth >= 0.0 && patch.azimuth < 180.0 {
+                    // East
                     contribution.svf_e.scaled_add(weight_aniso, &sh_view);
                 }
                 if patch.azimuth >= 90.0 && patch.azimuth < 270.0 {
+                    // South
                     contribution.svf_s.scaled_add(weight_aniso, &sh_view);
                 }
                 if patch.azimuth >= 180.0 && patch.azimuth < 360.0 {
+                    // West
                     contribution.svf_w.scaled_add(weight_aniso, &sh_view);
                 }
                 if patch.azimuth >= 270.0 || patch.azimuth < 90.0 {
+                    // North
                     contribution.svf_n.scaled_add(weight_aniso, &sh_view);
                 }
 
                 // Accumulate vegetation SVF if enabled
                 if usevegdem {
-                    contribution.svf_veg.scaled_add(weight, &vegsh_view);
+                    // Veg shadow results are already f32
+                    let vegsh_view = shadow_result.veg_shadow_map.view();
+                    let vbshvegsh_view = shadow_result.vbshvegsh.view();
+
+                    // Accumulate isotropic vegetation SVF (Matches Python)
+                    contribution.svf_veg.scaled_add(weight_iso, &vegsh_view);
+                    // Accumulate isotropic anisotropic vegetation SVF (Matches Python svfaveg)
                     contribution
                         .svf_vbssh_veg
-                        .scaled_add(weight, &vbshvegsh_view);
+                        .scaled_add(weight_iso, &vbshvegsh_view);
 
-                    // Accumulate directional vegetation SVF
+                    // Accumulate directional vegetation SVF (Anisotropic - Matches Python)
                     if patch.azimuth >= 0.0 && patch.azimuth < 180.0 {
+                        // East
                         contribution.svf_veg_e.scaled_add(weight_aniso, &vegsh_view);
                         contribution
                             .svf_vbssh_veg_e
                             .scaled_add(weight_aniso, &vbshvegsh_view);
                     }
                     if patch.azimuth >= 90.0 && patch.azimuth < 270.0 {
+                        // South
                         contribution.svf_veg_s.scaled_add(weight_aniso, &vegsh_view);
                         contribution
                             .svf_vbssh_veg_s
                             .scaled_add(weight_aniso, &vbshvegsh_view);
                     }
                     if patch.azimuth >= 180.0 && patch.azimuth < 360.0 {
+                        // West
                         contribution.svf_veg_w.scaled_add(weight_aniso, &vegsh_view);
                         contribution
                             .svf_vbssh_veg_w
                             .scaled_add(weight_aniso, &vbshvegsh_view);
                     }
                     if patch.azimuth >= 270.0 || patch.azimuth < 90.0 {
+                        // North
                         contribution.svf_veg_n.scaled_add(weight_aniso, &vegsh_view);
                         contribution
                             .svf_vbssh_veg_n

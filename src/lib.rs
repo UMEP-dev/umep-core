@@ -31,7 +31,7 @@ fn register_shadowing_module(py_module: &Bound<'_, PyModule>) -> PyResult<()> {
 fn register_skyview_module(py_module: &Bound<'_, PyModule>) -> PyResult<()> {
     let submodule = PyModule::new(py_module.py(), "skyview")?;
     submodule.add("__doc__", "Sky View Factor calculation.")?;
-    submodule.add_function(wrap_pyfunction!(skyview::calculate_svf_153, &submodule)?)?;
+    submodule.add_function(wrap_pyfunction!(skyview::calculate_svf, &submodule)?)?;
     py_module.add_submodule(&submodule)?;
     Ok(())
 }

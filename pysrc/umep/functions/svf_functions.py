@@ -3,6 +3,8 @@ from tqdm import tqdm
 from umep.util import shadowingfunctions as shadow
 from umep.util.SEBESOLWEIGCommonFiles.create_patches import create_patches
 
+from ..rustalgos import shadowing
+
 
 def annulus_weight(altitude, aziinterval):
     n = 90.0
@@ -40,17 +42,19 @@ def svfForProcessing153(dsm, vegdem, vegdem2, scale, usevegdem):
 
     # % amaxvalue
     vegmax = vegdem.max()
-    amaxvalue = np.percentile(dsm, 99.5)  # cap outliers
+    amaxvalue = dsm.max()  # cap outliers?
     amaxvalue = np.maximum(amaxvalue, vegmax)
 
     # % Elevation vegdems if buildingDSM inclused ground heights
-    vegdem = vegdem + dsm
-    vegdem[vegdem == dsm] = 0
-    vegdem2 = vegdem2 + dsm
-    vegdem2[vegdem2 == dsm] = 0
+    # vegdem = vegdem + dsm
+    # vegdem[vegdem == dsm] = 0
+    # vegdem2 = vegdem2 + dsm
+    # vegdem2[vegdem2 == dsm] = 0
 
     # % Bush separation
-    bush = np.logical_not(vegdem2 * vegdem) * vegdem
+    # bush = np.logical_not(vegdem2 * vegdem) * vegdem
+    bush = np.copy(vegdem)
+    bush[vegdem2 > 0] = 0.0
 
     index = 0
 
@@ -102,7 +106,7 @@ def svfForProcessing153(dsm, vegdem, vegdem2, scale, usevegdem):
             # Casting shadow
             if usevegdem == 1:
                 # numba doesn't seem to offer notable gains in this instance
-                shadowresult = shadow.shadowingfunction_20(
+                result = shadowing.shadowingfunction_wallheight_25(
                     dsm,
                     vegdem,
                     vegdem2,
@@ -111,11 +115,14 @@ def svfForProcessing153(dsm, vegdem, vegdem2, scale, usevegdem):
                     scale,
                     amaxvalue,
                     bush,
-                    1,  # for svf
+                    None,
+                    None,
+                    None,
+                    None,
                 )
-                vegsh = shadowresult["vegsh"]
-                vbshvegsh = shadowresult["vbshvegsh"]
-                sh = shadowresult["sh"]
+                vegsh = result.veg_shadow_map
+                vbshvegsh = result.vbshvegsh
+                sh = result.bldg_shadow_map
                 vegshmat[:, :, index] = vegsh
                 vbshvegshmat[:, :, index] = vbshvegsh
             else:
