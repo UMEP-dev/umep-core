@@ -61,7 +61,7 @@ def test_shadowing():
         "facesun": "facesun",
     }
     # Compare results
-    compare_results(result_py, result_rust, key_map, atol=0.01)
+    compare_results(result_py, result_rust, key_map, atol=0.0001)
     # Plot visual residuals
     plot_visual_residuals(sh, result_rust.bldg_shadow_map, title_prefix="Building Shadows")
     plot_visual_residuals(vegsh, result_rust.veg_shadow_map, title_prefix="Vegetation Shadows")
@@ -118,7 +118,7 @@ def test_svf():
         "vegshmat": "veg_shadow_matrix",
         "vbshvegshmat": "vbshvegsh_matrix",
     }
-    compare_results(result_py, result_rust, key_map, atol=0.1)
+    compare_results(result_py, result_rust, key_map, atol=0.0001)
 
     # Plot visual residuals for all comparable SVF components explicitly
     print("\nGenerating residual plots...")
@@ -178,7 +178,7 @@ def pct(a, b, atol=0.001):
     return 100.0 * np.isclose(a, b, atol=atol, rtol=0, equal_nan=True).sum() / a.size
 
 
-def compare_results(result_py, result_rust, key_map, atol=0.1):
+def compare_results(result_py, result_rust, key_map, atol=0.0001):
     print("\n--- SVF Comparison ---")
     for py_key, rust_attr in key_map.items():
         py_val = result_py.get(py_key)
@@ -255,4 +255,4 @@ def plot_visual_residuals(
     axes[2].axis("off")
 
     plt.tight_layout()  # Adjust layout to prevent overlapping titles/labels
-    plt.savefig(f"tests/rustalgos/{title_prefix.lower().replace(' ', '_')}_residuals.png", dpi=150)
+    plt.savefig(f"temp/{title_prefix.lower().replace(' ', '_')}_residuals.png", dpi=150)

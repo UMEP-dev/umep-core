@@ -65,7 +65,7 @@ fn create_patches(option: u8) -> Vec<PatchInfo> {
                 azimuth_patches: azimuth_patches[i] as f32,
                 // Calculate anisotropic azimuth patches (ceil(interval/2))
                 azimuth_patches_aniso: (azimuth_patches[i] as f32 / 2.0).ceil(),
-                annulino_start: annulino[i],
+                annulino_start: annulino[i] + 1, // Start from the next annulino degree to avoid overlap
                 annulino_end: annulino[i + 1],
             });
         }

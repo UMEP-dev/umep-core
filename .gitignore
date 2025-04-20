@@ -23,8 +23,12 @@ __pycache__/
 .python-version
 uv.lock
 
-# temp
-temp
+# Don't ignore the temp directory itself
+!temp/
+# Ignore everything inside the temp directory
+temp/*
+# Don't ignore the .gitkeep file inside the temp directory
+!temp/.gitkeep
 
 # C extensions
 *.so
