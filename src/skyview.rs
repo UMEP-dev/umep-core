@@ -259,7 +259,7 @@ fn calculate_amaxvalue(dsm: ArrayView2<f32>, vegdem: ArrayView2<f32>, usevegdem:
     }
 }
 
-fn prepare_bushes(vegdem: ArrayView2<f32>, vegdem2: ArrayView2<f32>) -> (Array2<f32>) {
+fn prepare_bushes(vegdem: ArrayView2<f32>, vegdem2: ArrayView2<f32>) -> Array2<f32> {
     let vegdem_adj = vegdem.to_owned();
     let vegdem2_adj = vegdem2.to_owned();
     // Calculate bush areas (vegetation without trunks)

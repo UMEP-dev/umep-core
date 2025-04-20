@@ -4,10 +4,6 @@ use pyo3::prelude::*;
 use pyo3::IntoPyObject;
 
 // Constants
-const SHADOW_FLAG_INTERMEDIATE: f32 = 1.0; // Intermediate value indicating shadow
-const SUNLIT_FLAG_INTERMEDIATE: f32 = 0.0; // Intermediate value indicating sunlit
-const FINAL_SUNLIT_VALUE: f32 = 1.0; // Final output value representing sunlit
-const PERGOLA_SOLID_THRESHOLD: f32 = 4.0; // Threshold for pergola shadow logic
 const PI_OVER_4: f32 = std::f32::consts::FRAC_PI_4;
 const THREE_PI_OVER_4: f32 = 3.0 * PI_OVER_4;
 const FIVE_PI_OVER_4: f32 = 5.0 * PI_OVER_4;
@@ -88,9 +84,7 @@ pub(crate) fn calculate_shadows_rust(
     let mut dx: f32 = 0.0;
     let mut dy: f32 = 0.0;
     let mut dz: f32 = 0.0;
-    let mut ds: f32 = 0.0; // Declare ds here
-    let mut prev_dx: f32 = 0.0; // Store previous offsets
-    let mut prev_dy: f32 = 0.0;
+    let mut ds: f32;
     let mut prev_dz: f32 = 0.0;
 
     // Bush mask threshold should match Python: bushplant = bush > 1
@@ -151,8 +145,6 @@ pub(crate) fn calculate_shadows_rust(
                     // Apply offset consistent with the working slice logic (target + offset)
                     let sx_i = (tx as f32 + dx).round() as isize;
                     let sy_i = (ty as f32 + dy).round() as isize;
-                    let prev_sx_i = (tx as f32 + prev_dx).round() as isize;
-                    let prev_sy_i = (ty as f32 + prev_dy).round() as isize;
 
                     // Fetch source values safely using helper function
                     let source_dsm = get_view_value(&dsm_view, sx_i, sy_i, sizex, sizey);
@@ -160,17 +152,13 @@ pub(crate) fn calculate_shadows_rust(
                         get_view_value(&veg_canopy_dsm_view, sx_i, sy_i, sizex, sizey);
                     let source_veg_trunk =
                         get_view_value(&veg_trunk_dsm_view, sx_i, sy_i, sizex, sizey);
-                    let prev_source_veg_canopy =
-                        get_view_value(&veg_canopy_dsm_view, prev_sx_i, prev_sy_i, sizex, sizey);
-                    let prev_source_veg_trunk =
-                        get_view_value(&veg_trunk_dsm_view, prev_sx_i, prev_sy_i, sizex, sizey);
 
                     // Calculate shifted heights for the current target pixel
                     let shifted_dsm = source_dsm - dz;
                     let shifted_veg_canopy = source_veg_canopy - dz;
                     let shifted_veg_trunk = source_veg_trunk - dz;
-                    let prev_shifted_veg_canopy = prev_source_veg_canopy - prev_dz;
-                    let prev_shifted_veg_trunk = prev_source_veg_trunk - prev_dz;
+                    let prev_shifted_veg_canopy = source_veg_canopy - prev_dz;
+                    let prev_shifted_veg_trunk = source_veg_trunk - prev_dz;
 
                     // Update propagated building height
                     *prop_bldg_h = prop_bldg_h.max(shifted_dsm);
@@ -179,43 +167,41 @@ pub(crate) fn calculate_shadows_rust(
                     *prop_veg_h = prop_veg_h.max(shifted_veg_canopy);
 
                     // Update building shadow flag (based on updated propagated height at target)
-                    *bldg_sh_flag = if *prop_bldg_h > dsm_h_target + EPSILON {
+                    *bldg_sh_flag = if *prop_bldg_h > dsm_h_target {
                         // Add epsilon for float comparison
-                        SHADOW_FLAG_INTERMEDIATE
+                        1.0
                     } else {
-                        SUNLIT_FLAG_INTERMEDIATE
+                        0.0
                     };
 
                     // Update veg shadow flag (Pergola logic)
                     // Compare shifted heights with target DSM height
-                    let cond1 = if shifted_veg_canopy > dsm_h_target + EPSILON {
+                    let cond1 = if shifted_veg_canopy > dsm_h_target {
                         1.0
                     } else {
                         0.0
                     };
-                    let cond2 = if shifted_veg_trunk > dsm_h_target + EPSILON {
+                    let cond2 = if shifted_veg_trunk > dsm_h_target {
                         1.0
                     } else {
                         0.0
                     };
-                    let cond3 = if prev_shifted_veg_canopy > dsm_h_target + EPSILON {
+                    let cond3 = if prev_shifted_veg_canopy > dsm_h_target {
                         1.0
                     } else {
                         0.0
                     };
-                    let cond4 = if prev_shifted_veg_trunk > dsm_h_target + EPSILON {
+                    let cond4 = if prev_shifted_veg_trunk > dsm_h_target {
                         1.0
                     } else {
                         0.0
                     };
                     let conditions_sum = cond1 + cond2 + cond3 + cond4;
 
-                    let pergola_shadow = if conditions_sum > SUNLIT_FLAG_INTERMEDIATE
-                        && conditions_sum < PERGOLA_SOLID_THRESHOLD
-                    {
-                        SHADOW_FLAG_INTERMEDIATE
+                    let pergola_shadow = if conditions_sum > 0.0 && conditions_sum < 4.0 {
+                        1.0
                     } else {
-                        SUNLIT_FLAG_INTERMEDIATE
+                        0.0
                     };
                     // Update main veg shadow flag (accumulates)
                     *veg_sh_flag = f32::max(*veg_sh_flag, pergola_shadow);
@@ -224,19 +210,7 @@ pub(crate) fn calculate_shadows_rust(
 
         // --- End of combined update ---
 
-        // Accumulate vbshvegsh BEFORE clearing veg_shadow_map (like shadowing_old.rs)
-        // Use veg_shadow_map which holds the max accumulated shadow flag up to this point.
-        Zip::from(&mut vbshvegsh)
-            .and(&veg_shadow_map) // Accumulate from the main veg_shadow_map
-            .par_for_each(|vbs_acc, &v_sh_flag| {
-                // Use the flag from veg_shadow_map
-                if v_sh_flag > 0.0 {
-                    // Check against 0.0 (consistent with old logic's implicit check)
-                    *vbs_acc += v_sh_flag; // Accumulate the potentially persistent flag
-                }
-            });
-
-        // Clear veg_shadow_map where building shadow exists (must match Python order)
+        // Clear veg_shadow_map where building shadow exists FIRST (matches Python order)
         Zip::from(&mut veg_shadow_map)
             .and(&bldg_shadow_map)
             .par_for_each(|v_sh_flag, &b_sh_flag| {
@@ -245,30 +219,35 @@ pub(crate) fn calculate_shadows_rust(
                 }
             });
 
-        prev_dx = dx;
-        prev_dy = dy;
+        // Accumulate the potentially cleared veg_shadow_map into vbshvegsh SECOND
+        // Use veg_shadow_map which holds the max accumulated shadow flag up to this point,
+        // potentially cleared by building shadow in the step above.
+        Zip::from(&mut vbshvegsh)
+            .and(&veg_shadow_map) // Use the potentially cleared map
+            .par_for_each(|vbs_acc, &v_sh_flag| {
+                // Use the flag from veg_shadow_map
+                if v_sh_flag > 0.0 {
+                    // Check against 0.0 (consistent with old logic's implicit check)
+                    *vbs_acc += v_sh_flag; // Accumulate the potentially persistent flag
+                }
+            });
+
         prev_dz = dz;
 
         index += 1.0;
     } // End of while loop
 
     // --- Final processing of shadow maps ---
-    bldg_shadow_map.par_mapv_inplace(|v| FINAL_SUNLIT_VALUE - v);
+    bldg_shadow_map.par_mapv_inplace(|v| 1.0 - v);
 
     vbshvegsh.par_mapv_inplace(|v| if v > 0.0 { 1.0 } else { 0.0 });
     vbshvegsh = &vbshvegsh - &veg_shadow_map.mapv(|v| if v > 0.0 { 1.0 } else { 0.0 });
     vbshvegsh.par_mapv_inplace(|v| 1.0 - v.max(0.0));
 
-    veg_shadow_map.par_mapv_inplace(|v| {
-        if v > 0.0 {
-            SHADOW_FLAG_INTERMEDIATE
-        } else {
-            SUNLIT_FLAG_INTERMEDIATE
-        }
-    });
-    veg_shadow_map.par_mapv_inplace(|v| FINAL_SUNLIT_VALUE - v);
+    veg_shadow_map.par_mapv_inplace(|v| if v > 0.0 { 1.0 } else { 0.0 });
+    veg_shadow_map.par_mapv_inplace(|v| 1.0 - v);
 
-    let final_veg_shadow_mask = veg_shadow_map.mapv(|v| FINAL_SUNLIT_VALUE - v);
+    let final_veg_shadow_mask = veg_shadow_map.mapv(|v| 1.0 - v);
     Zip::from(&mut propagated_veg_shadow_height)
         .and(&dsm_view)
         .and(&final_veg_shadow_mask)
@@ -367,9 +346,9 @@ fn shade_on_walls(
             .and(&wall_mask)
             .par_for_each(|f_sh, &asp, &w_mask| {
                 *f_sh = if asp < azilow || asp >= azihigh {
-                    SHADOW_FLAG_INTERMEDIATE
+                    1.0
                 } else {
-                    SUNLIT_FLAG_INTERMEDIATE
+                    0.0
                 } - w_mask
                     + 1.0;
             });
@@ -385,6 +364,7 @@ fn shade_on_walls(
                 } + 1.0;
             });
     } else {
+        // if azilow > 0.0 && azihigh >= TAU
         let azihigh_wrapped = azihigh - TAU;
         Zip::from(&mut wall_face_shadow_mask)
             .and(aspect)
