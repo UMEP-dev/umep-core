@@ -99,19 +99,12 @@ def generate_svf(
     # 2 = 153 patches
     ret = skyview.calculate_svf(dsm_rast_f32, cdsm_rast_f32, cdsm_2_rast_f32, dsm_scale, use_cdsm, 2)
 
-    # Access results using attributes instead of dictionary keys
-    svfbu = ret.svf
-    svfbuE = ret.svf_east
-    svfbuS = ret.svf_south
-    svfbuW = ret.svf_west
-    svfbuN = ret.svf_north
-
     # Save the rasters using rasterio
-    common.save_raster(out_path_str + "/" + "svf.tif", svfbu, dsm_transf, dsm_crs)
-    common.save_raster(out_path_str + "/" + "svfE.tif", svfbuE, dsm_transf, dsm_crs)
-    common.save_raster(out_path_str + "/" + "svfS.tif", svfbuS, dsm_transf, dsm_crs)
-    common.save_raster(out_path_str + "/" + "svfW.tif", svfbuW, dsm_transf, dsm_crs)
-    common.save_raster(out_path_str + "/" + "svfN.tif", svfbuN, dsm_transf, dsm_crs)
+    common.save_raster(out_path_str + "/" + "svf.tif", ret.svf, dsm_transf, dsm_crs)
+    common.save_raster(out_path_str + "/" + "svfE.tif", ret.svf_east, dsm_transf, dsm_crs)
+    common.save_raster(out_path_str + "/" + "svfS.tif", ret.svf_south, dsm_transf, dsm_crs)
+    common.save_raster(out_path_str + "/" + "svfW.tif", ret.svf_west, dsm_transf, dsm_crs)
+    common.save_raster(out_path_str + "/" + "svfN.tif", ret.svf_north, dsm_transf, dsm_crs)
 
     # Create or update the ZIP file
     zip_filepath = out_path_str + "/" + "svfs.zip"
@@ -133,29 +126,17 @@ def generate_svf(
     os.remove(out_path_str + "/" + "svfN.tif")
 
     if use_cdsm:  # Changed from use_cdsm == 0 to boolean check
-        # Report the vegetation-related results using attribute access
-        svfveg = ret.svf_veg
-        svfEveg = ret.svf_veg_east
-        svfSveg = ret.svf_veg_south
-        svfWveg = ret.svf_veg_west
-        svfNveg = ret.svf_veg_north
-        svfaveg = ret.svf_aniso_veg
-        svfEaveg = ret.svf_aniso_veg_east
-        svfSaveg = ret.svf_aniso_veg_south
-        svfWaveg = ret.svf_aniso_veg_west
-        svfNaveg = ret.svf_aniso_veg_north
-
         # Save vegetation rasters
-        common.save_raster(out_path_str + "/" + "svfveg.tif", svfveg, dsm_transf, dsm_crs)
-        common.save_raster(out_path_str + "/" + "svfEveg.tif", svfEveg, dsm_transf, dsm_crs)
-        common.save_raster(out_path_str + "/" + "svfSveg.tif", svfSveg, dsm_transf, dsm_crs)
-        common.save_raster(out_path_str + "/" + "svfWveg.tif", svfWveg, dsm_transf, dsm_crs)
-        common.save_raster(out_path_str + "/" + "svfNveg.tif", svfNveg, dsm_transf, dsm_crs)
-        common.save_raster(out_path_str + "/" + "svfaveg.tif", svfaveg, dsm_transf, dsm_crs)
-        common.save_raster(out_path_str + "/" + "svfEaveg.tif", svfEaveg, dsm_transf, dsm_crs)
-        common.save_raster(out_path_str + "/" + "svfSaveg.tif", svfSaveg, dsm_transf, dsm_crs)
-        common.save_raster(out_path_str + "/" + "svfWaveg.tif", svfWaveg, dsm_transf, dsm_crs)
-        common.save_raster(out_path_str + "/" + "svfNaveg.tif", svfNaveg, dsm_transf, dsm_crs)
+        common.save_raster(out_path_str + "/" + "svfveg.tif", ret.svfveg, dsm_transf, dsm_crs)
+        common.save_raster(out_path_str + "/" + "svfEveg.tif", ret.svfEveg, dsm_transf, dsm_crs)
+        common.save_raster(out_path_str + "/" + "svfSveg.tif", ret.svfSveg, dsm_transf, dsm_crs)
+        common.save_raster(out_path_str + "/" + "svfWveg.tif", ret.svfWveg, dsm_transf, dsm_crs)
+        common.save_raster(out_path_str + "/" + "svfNveg.tif", ret.svfNveg, dsm_transf, dsm_crs)
+        common.save_raster(out_path_str + "/" + "svfaveg.tif", ret.svfaveg, dsm_transf, dsm_crs)
+        common.save_raster(out_path_str + "/" + "svfEaveg.tif", ret.svfEaveg, dsm_transf, dsm_crs)
+        common.save_raster(out_path_str + "/" + "svfSaveg.tif", ret.svfSaveg, dsm_transf, dsm_crs)
+        common.save_raster(out_path_str + "/" + "svfWaveg.tif", ret.svfWaveg, dsm_transf, dsm_crs)
+        common.save_raster(out_path_str + "/" + "svfNaveg.tif", ret.svfNaveg, dsm_transf, dsm_crs)
 
         # Add vegetation rasters to the ZIP file
         with zipfile.ZipFile(zip_filepath, "a") as zippo:
@@ -183,14 +164,12 @@ def generate_svf(
         os.remove(out_path_str + "/" + "svfNaveg.tif")
 
         # Calculate final total SVF
-        svftotal = svfbu - (1 - svfveg) * (1 - trans)
-    else:
-        svftotal = svfbu
+        svftotal = ret.svf - (1 - ret.svfveg) * (1 - trans)
 
     # Save the final svftotal raster
     common.save_raster(out_path_str + "/" + "svf_total.tif", svftotal, dsm_transf, dsm_crs)
-    """
-    # Save shadow matrices as compressed npz using attribute access
+
+    # Save shadow matrices as compressed npz
     shmat = ret.shadow_matrix
     vegshmat = ret.veg_shadow_matrix
     vbshvegshmat = ret.vbshvegsh_matrix
@@ -201,4 +180,3 @@ def generate_svf(
         vegshadowmat=vegshmat,
         vbshmat=vbshvegshmat,
     )
-    """

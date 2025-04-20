@@ -1,5 +1,5 @@
-use ndarray::{Array, Array2, ArrayView2, Zip};
-use numpy::{IntoPyArray, PyArray2, PyReadonlyArray2};
+use ndarray::{Array, Array2, Array3, ArrayView2, Zip};
+use numpy::{IntoPyArray, PyArray2, PyArray3, PyReadonlyArray2};
 use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::f32::consts::PI;
@@ -106,6 +106,12 @@ pub struct SvfResult {
     pub svf_vbssh_veg_south: Py<PyArray2<f32>>,
     #[pyo3(get)]
     pub svf_vbssh_veg_west: Py<PyArray2<f32>>,
+    #[pyo3(get)]
+    pub shadow_matrix: Py<PyArray3<f32>>,
+    #[pyo3(get)]
+    pub veg_shadow_matrix: Py<PyArray3<f32>>,
+    #[pyo3(get)]
+    pub vbshvegsh_matrix: Py<PyArray3<f32>>,
 }
 
 // Internal structure for accumulating contributions during parallel processing
@@ -183,6 +189,9 @@ impl PatchContribution {
         py: Python,
         usevegdem: bool,
         vegdem2: ArrayView2<f32>,
+        shadow_matrix: Array3<f32>,
+        veg_shadow_matrix: Array3<f32>,
+        vbshvegsh_matrix: Array3<f32>,
     ) -> PyResult<Py<SvfResult>> {
         // Apply correction factors (matching Python code)
         self.svf_s += LAST_ANNULUS_CORRECTION;
@@ -243,6 +252,9 @@ impl PatchContribution {
                 svf_vbssh_veg_east: self.svf_vbssh_veg_e.into_pyarray(py).unbind(),
                 svf_vbssh_veg_south: self.svf_vbssh_veg_s.into_pyarray(py).unbind(),
                 svf_vbssh_veg_west: self.svf_vbssh_veg_w.into_pyarray(py).unbind(),
+                shadow_matrix: shadow_matrix.into_pyarray(py).unbind(),
+                veg_shadow_matrix: veg_shadow_matrix.into_pyarray(py).unbind(),
+                vbshvegsh_matrix: vbshvegsh_matrix.into_pyarray(py).unbind(),
             },
         )
     }
@@ -299,117 +311,98 @@ pub fn calculate_svf(
 
     // Create sky patches (use patch_option argument)
     let patches = create_patches(patch_option);
+    let total_patches = patches.len(); // Needed for 3D array dimensions
 
-    // Process all patches in parallel using Rayon
-    let result = patches
+    // Initialize 3D arrays to store shadow maps for each patch
+    let mut shadow_matrix = Array::zeros((rows, cols, total_patches));
+    let mut veg_shadow_matrix = Array::zeros((rows, cols, total_patches));
+    let mut vbshvegsh_matrix = Array::zeros((rows, cols, total_patches));
+
+    // Process all patches in parallel using Rayon, collect results
+    let results_vec: Vec<_> = patches
         .par_iter()
-        .map(|patch| {
-            // Get views for shadowing function call (use f32 versions)
+        .enumerate() // Get index along with patch
+        .map(|(index, patch)| {
             let dsm_view = dsm_f32.view();
-            // Use Option::as_ref().map() to get Option<ArrayView>
             let vegdem_adj_view = vegdem_f32.view();
             let vegdem2_adj_view = vegdem2_f32.view();
             let bush_view = bush_f32.view();
 
-            // --- Call shadowing function ---
             let shadow_result: ShadowingResultRust = calculate_shadows_rust(
                 dsm_view,
-                vegdem_adj_view,  // Use canopy DSM (vegdem adjusted)
-                vegdem2_adj_view, // Use trunk DSM (vegdem2 adjusted)
-                patch.azimuth,    // f32
-                patch.altitude,   // f32
-                scale,            // f32
-                amaxvalue,        // f32
-                bush_view,        // ArrayView2<f32>
-                None,             // walls_view_opt
-                None,             // aspect_view_opt
-                None,             // walls_scheme_view_opt
-                None,             // aspect_scheme_view_opt
+                vegdem_adj_view,
+                vegdem2_adj_view,
+                patch.azimuth,
+                patch.altitude,
+                scale,
+                amaxvalue,
+                bush_view,
+                None,
+                None,
+                None,
+                None,
             );
 
-            // --- Accumulate results ---
+            // --- Calculate SVF contribution for this patch ---
             let mut contribution = PatchContribution::zeros(rows, cols);
+            let sh_view = shadow_result.bldg_shadow_map.view(); // Borrow for calculations
 
-            // Shadow results are already f32
-            let sh_view = shadow_result.bldg_shadow_map.view(); // Directly use the view
-
-            // --- Pre-calculate altitude-dependent part of weights ---
-            let n = 90.0; // Constant from annulus_weight
-            let common_w_factor = (1.0 / (2.0 * PI)) * (PI / (2.0 * n)).sin(); // Constant part of w
-
-            // Pre-calculate step radians for this patch
+            let n = 90.0;
+            let common_w_factor = (1.0 / (2.0 * PI)) * (PI / (2.0 * n)).sin();
             let steprad_iso = (360.0 / patch.azimuth_patches) * (PI / 180.0);
             let steprad_aniso = (360.0 / patch.azimuth_patches_aniso) * (PI / 180.0);
 
-            // --- Loop through altitudes for this patch ---
             for altitude in patch.annulino_start..=patch.annulino_end {
-                // Calculate altitude-specific part of weight calculation
                 let annulus = 91.0 - altitude as f32;
                 let sin_term = ((PI * (2.0 * annulus - 1.0)) / (2.0 * n)).sin();
-                let common_w_part = common_w_factor * sin_term; // Full w without steprad
+                let common_w_part = common_w_factor * sin_term;
 
-                // Calculate final weights for this altitude
-                let weight_iso = steprad_iso * common_w_part; // Isotropic weight
-                let weight_aniso = steprad_aniso * common_w_part; // Anisotropic weight
+                let weight_iso = steprad_iso * common_w_part;
+                let weight_aniso = steprad_aniso * common_w_part;
 
-                // Accumulate building SVF (Isotropic)
                 contribution.svf.scaled_add(weight_iso, &sh_view);
 
-                // Accumulate directional building SVF (Anisotropic)
                 if patch.azimuth >= 0.0 && patch.azimuth < 180.0 {
-                    // East
                     contribution.svf_e.scaled_add(weight_aniso, &sh_view);
                 }
                 if patch.azimuth >= 90.0 && patch.azimuth < 270.0 {
-                    // South
                     contribution.svf_s.scaled_add(weight_aniso, &sh_view);
                 }
                 if patch.azimuth >= 180.0 && patch.azimuth < 360.0 {
-                    // West
                     contribution.svf_w.scaled_add(weight_aniso, &sh_view);
                 }
                 if patch.azimuth >= 270.0 || patch.azimuth < 90.0 {
-                    // North
                     contribution.svf_n.scaled_add(weight_aniso, &sh_view);
                 }
 
-                // Accumulate vegetation SVF if enabled
                 if usevegdem {
-                    // Veg shadow results are already f32
                     let vegsh_view = shadow_result.veg_shadow_map.view();
                     let vbshvegsh_view = shadow_result.vbshvegsh.view();
 
-                    // Accumulate isotropic vegetation SVF (Matches Python)
                     contribution.svf_veg.scaled_add(weight_iso, &vegsh_view);
-                    // Accumulate anisotropic vegetation SVF (Matches Python svfaveg)
                     contribution
                         .svf_vbssh_veg
                         .scaled_add(weight_iso, &vbshvegsh_view);
 
-                    // Accumulate directional vegetation SVF (Anisotropic - Matches Python)
                     if patch.azimuth >= 0.0 && patch.azimuth < 180.0 {
-                        // East
                         contribution.svf_veg_e.scaled_add(weight_aniso, &vegsh_view);
                         contribution
                             .svf_vbssh_veg_e
                             .scaled_add(weight_aniso, &vbshvegsh_view);
                     }
                     if patch.azimuth >= 90.0 && patch.azimuth < 270.0 {
-                        // South
                         contribution.svf_veg_s.scaled_add(weight_aniso, &vegsh_view);
                         contribution
                             .svf_vbssh_veg_s
                             .scaled_add(weight_aniso, &vbshvegsh_view);
                     }
                     if patch.azimuth >= 180.0 && patch.azimuth < 360.0 {
-                        // West
                         contribution.svf_veg_w.scaled_add(weight_aniso, &vegsh_view);
                         contribution
                             .svf_vbssh_veg_w
                             .scaled_add(weight_aniso, &vbshvegsh_view);
                     }
                     if patch.azimuth >= 270.0 || patch.azimuth < 90.0 {
-                        // North
                         contribution.svf_veg_n.scaled_add(weight_aniso, &vegsh_view);
                         contribution
                             .svf_vbssh_veg_n
@@ -419,13 +412,45 @@ pub fn calculate_svf(
             }
             // Note: If not usevegdem, veg arrays remain zero
 
-            contribution // Return contribution for this patch
+            // Return index, contribution, and owned shadow maps for later assignment
+            (
+                index,
+                contribution,
+                shadow_result.bldg_shadow_map, // Move ownership
+                shadow_result.veg_shadow_map,  // Move ownership
+                shadow_result.vbshvegsh,       // Move ownership
+            )
         })
-        .reduce(
-            || PatchContribution::zeros(rows, cols), // Initial value for reduce
-            |a, b| a.combine(b),                     // Combine function
-        );
+        .collect(); // Collect results from all threads
 
-    // Finalize and return results - use the original f32 vegdem2 view
-    result.finalize(py, usevegdem, vegdem2_f32)
+    // --- Combine results sequentially after parallel processing ---
+    let mut final_contribution = PatchContribution::zeros(rows, cols);
+    for (index, contrib, bldg_map, veg_map, vbsh_map) in results_vec {
+        // Combine the SVF contributions
+        final_contribution = final_contribution.combine(contrib);
+
+        // Assign the shadow maps to the correct slice in the 3D arrays using s! macro
+        // This happens sequentially after parallel computation is finished.
+        shadow_matrix
+            .slice_mut(ndarray::s![.., .., index])
+            .assign(&bldg_map);
+        if usevegdem {
+            veg_shadow_matrix
+                .slice_mut(ndarray::s![.., .., index])
+                .assign(&veg_map);
+            vbshvegsh_matrix
+                .slice_mut(ndarray::s![.., .., index])
+                .assign(&vbsh_map);
+        }
+    }
+
+    // Finalize and return results - pass the populated 3D arrays
+    final_contribution.finalize(
+        py,
+        usevegdem,
+        vegdem2_f32,
+        shadow_matrix,
+        veg_shadow_matrix,
+        vbshvegsh_matrix,
+    )
 }
