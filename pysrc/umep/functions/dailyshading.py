@@ -129,7 +129,7 @@ def dailyshading(
         timestr = time_vector.strftime("%Y%m%d_%H%M")
         if alt[i] > 0:
             if wallshadow == 1:  # Include wall shadows (Issue #121)
-                result = shadowing.shadowingfunction_wallheight_25(
+                result = shadowing.calculate_shadows_wall_ht_25(
                     dsm,
                     vegdem,
                     vegdem2,
@@ -143,17 +143,17 @@ def dailyshading(
                     None,
                     None,
                 )
-                sh = result.bldg_shadow_map - (1 - result.veg_shadow_map) * (1 - psi)
+                sh = result.bldg_sh - (1 - result.veg_sh) * (1 - psi)
                 if onetime == 0:
                     filenamewallshve = folder + "/facade_shdw_veg/facade_shdw_veg_" + timestr + "_LST.tif"
-                    common.save_raster(filenamewallshve, result.wallshve, dsm_transf, dsm_crs)
+                    common.save_raster(filenamewallshve, result.wall_sh_veg, dsm_transf, dsm_crs)
                 if onetime == 0:
                     filename = folder + "/shadow_ground/shadow_ground_" + timestr + "_LST.tif"
                     common.save_raster(filename, sh, dsm_transf, dsm_crs)
                     filenamewallsh = folder + "/facade_shdw_bldgs/facade_shdw_bldgs_" + timestr + "_LST.tif"
-                    common.save_raster(filenamewallsh, result.wallsh, dsm_transf, dsm_crs)
+                    common.save_raster(filenamewallsh, result.wall_sh, dsm_transf, dsm_crs)
             else:
-                result = shadowing.shadowingfunction_wallheight_25(
+                result = shadowing.calculate_shadows_wall_ht_25(
                     dsm,
                     vegdem,
                     vegdem2,
@@ -167,7 +167,7 @@ def dailyshading(
                     None,
                     None,
                 )
-                sh = result.bldg_shadow_map - (1 - result.veg_shadow_map) * (1 - psi)
+                sh = result.bldg_sh - (1 - result.veg_sh) * (1 - psi)
                 if onetime == 0:
                     filename = folder + "/Shadow_" + timestr + "_LST.tif"
                     common.save_raster(filename, sh, dsm_transf, dsm_crs)
@@ -180,9 +180,9 @@ def dailyshading(
     if wallshadow == 1:
         if onetime == 1:
             filenamewallsh = folder + "/facade_shdw_bldgs/facade_shdw_bldgs_" + timestr + "_LST.tif"
-            common.save_raster(filenamewallsh, result.wallsh, dsm_transf, dsm_crs)
+            common.save_raster(filenamewallsh, result.wall_sh, dsm_transf, dsm_crs)
             filenamewallshve = folder + "/facade_shdw_veg/facade_shdw_veg_" + timestr + "_LST.tif"
-            common.save_raster(filenamewallshve, result.wallshve, dsm_transf, dsm_crs)
+            common.save_raster(filenamewallshve, result.wall_sh_veg, dsm_transf, dsm_crs)
 
     shadowresult = {"shfinal": shfinal, "time_vector": time_vector}
 

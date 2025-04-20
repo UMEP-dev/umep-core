@@ -144,9 +144,9 @@ def generate_shadows(
     Path.mkdir(out_path / "shadow_ground", parents=True, exist_ok=True)
 
     shadowresult = dsh.dailyshading(
-        dsm,
-        veg_dsm,
-        veg_dsm_2,
+        dsm.astype("float32"),
+        veg_dsm.astype("float32"),
+        veg_dsm_2.astype("float32"),
         dsm_scale,
         lon,
         lat,
@@ -163,8 +163,8 @@ def generate_shadows(
         trans,
         dst,
         wallsh,
-        wh_rast,
-        wa_rast,
+        wh_rast.astype("float32"),
+        wa_rast.astype("float32"),
     )
 
     shfinal = shadowresult["shfinal"]

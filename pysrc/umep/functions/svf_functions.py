@@ -106,7 +106,7 @@ def svfForProcessing153(dsm, vegdem, vegdem2, scale, usevegdem):
             # Casting shadow
             if usevegdem == 1:
                 # numba doesn't seem to offer notable gains in this instance
-                result = shadowing.shadowingfunction_wallheight_25(
+                result = shadowing.calculate_shadows_wall_ht_25(
                     dsm,
                     vegdem,
                     vegdem2,
@@ -120,9 +120,9 @@ def svfForProcessing153(dsm, vegdem, vegdem2, scale, usevegdem):
                     None,
                     None,
                 )
-                vegsh = result.veg_shadow_map
-                vbshvegsh = result.vbshvegsh
-                sh = result.bldg_shadow_map
+                vegsh = result.veg_sh
+                vbshvegsh = result.veg_blocks_bldg_sh
+                sh = result.bldg_sh
                 vegshmat[:, :, index] = vegsh
                 vbshvegshmat[:, :, index] = vbshvegsh
             else:

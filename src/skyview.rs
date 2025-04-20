@@ -97,28 +97,28 @@ pub struct SvfResult {
     #[pyo3(get)]
     pub svf_veg_west: Py<PyArray2<f32>>,
     #[pyo3(get)]
-    pub svf_vbssh_veg: Py<PyArray2<f32>>,
+    pub svf_veg_blocks_bldg_sh: Py<PyArray2<f32>>,
     #[pyo3(get)]
-    pub svf_vbssh_veg_north: Py<PyArray2<f32>>,
+    pub svf_veg_blocks_bldg_sh_north: Py<PyArray2<f32>>,
     #[pyo3(get)]
-    pub svf_vbssh_veg_east: Py<PyArray2<f32>>,
+    pub svf_veg_blocks_bldg_sh_east: Py<PyArray2<f32>>,
     #[pyo3(get)]
-    pub svf_vbssh_veg_south: Py<PyArray2<f32>>,
+    pub svf_veg_blocks_bldg_sh_south: Py<PyArray2<f32>>,
     #[pyo3(get)]
-    pub svf_vbssh_veg_west: Py<PyArray2<f32>>,
+    pub svf_veg_blocks_bldg_sh_west: Py<PyArray2<f32>>,
     #[pyo3(get)]
-    pub shadow_matrix: Py<PyArray3<f32>>,
+    pub bldg_sh_matrix: Py<PyArray3<f32>>,
     #[pyo3(get)]
-    pub veg_shadow_matrix: Py<PyArray3<f32>>,
+    pub veg_sh_matrix: Py<PyArray3<f32>>,
     #[pyo3(get)]
-    pub vbshvegsh_matrix: Py<PyArray3<f32>>,
+    pub veg_blocks_bldg_sh_matrix: Py<PyArray3<f32>>,
 }
 
 // Internal structure for accumulating contributions during parallel processing
 #[derive(Clone)]
 struct PatchContribution {
-    rows: usize,
-    cols: usize,
+    num_rows: usize,
+    num_cols: usize,
     svf: Array2<f32>,
     svf_n: Array2<f32>,
     svf_e: Array2<f32>,
@@ -129,21 +129,21 @@ struct PatchContribution {
     svf_veg_e: Array2<f32>,
     svf_veg_s: Array2<f32>,
     svf_veg_w: Array2<f32>,
-    svf_vbssh_veg: Array2<f32>,
-    svf_vbssh_veg_n: Array2<f32>,
-    svf_vbssh_veg_e: Array2<f32>,
-    svf_vbssh_veg_s: Array2<f32>,
-    svf_vbssh_veg_w: Array2<f32>,
+    svf_veg_blocks_bldg_sh: Array2<f32>,
+    svf_veg_blocks_bldg_sh_n: Array2<f32>,
+    svf_veg_blocks_bldg_sh_e: Array2<f32>,
+    svf_veg_blocks_bldg_sh_s: Array2<f32>,
+    svf_veg_blocks_bldg_sh_w: Array2<f32>,
 }
 
 impl PatchContribution {
     // Create a new contribution object initialized with zeros
     // Always initialize all arrays, regardless of usevegdem
-    fn zeros(rows: usize, cols: usize) -> Self {
-        let zero_array = || Array2::zeros((rows, cols));
+    fn zeros(num_rows: usize, num_cols: usize) -> Self {
+        let zero_array = || Array2::zeros((num_rows, num_cols));
         Self {
-            rows,
-            cols,
+            num_rows,
+            num_cols,
             svf: zero_array(),
             svf_n: zero_array(),
             svf_e: zero_array(),
@@ -154,11 +154,11 @@ impl PatchContribution {
             svf_veg_e: zero_array(),
             svf_veg_s: zero_array(),
             svf_veg_w: zero_array(),
-            svf_vbssh_veg: zero_array(),
-            svf_vbssh_veg_n: zero_array(),
-            svf_vbssh_veg_e: zero_array(),
-            svf_vbssh_veg_s: zero_array(),
-            svf_vbssh_veg_w: zero_array(),
+            svf_veg_blocks_bldg_sh: zero_array(),
+            svf_veg_blocks_bldg_sh_n: zero_array(),
+            svf_veg_blocks_bldg_sh_e: zero_array(),
+            svf_veg_blocks_bldg_sh_s: zero_array(),
+            svf_veg_blocks_bldg_sh_w: zero_array(),
         }
     }
 
@@ -175,11 +175,11 @@ impl PatchContribution {
         self.svf_veg_e += &other.svf_veg_e;
         self.svf_veg_s += &other.svf_veg_s;
         self.svf_veg_w += &other.svf_veg_w;
-        self.svf_vbssh_veg += &other.svf_vbssh_veg;
-        self.svf_vbssh_veg_n += &other.svf_vbssh_veg_n;
-        self.svf_vbssh_veg_e += &other.svf_vbssh_veg_e;
-        self.svf_vbssh_veg_s += &other.svf_vbssh_veg_s;
-        self.svf_vbssh_veg_w += &other.svf_vbssh_veg_w;
+        self.svf_veg_blocks_bldg_sh += &other.svf_veg_blocks_bldg_sh;
+        self.svf_veg_blocks_bldg_sh_n += &other.svf_veg_blocks_bldg_sh_n;
+        self.svf_veg_blocks_bldg_sh_e += &other.svf_veg_blocks_bldg_sh_e;
+        self.svf_veg_blocks_bldg_sh_s += &other.svf_veg_blocks_bldg_sh_s;
+        self.svf_veg_blocks_bldg_sh_w += &other.svf_veg_blocks_bldg_sh_w;
         self
     }
 
@@ -189,9 +189,9 @@ impl PatchContribution {
         py: Python,
         usevegdem: bool,
         vegdem2: ArrayView2<f32>,
-        shadow_matrix: Array3<f32>,
-        veg_shadow_matrix: Array3<f32>,
-        vbshvegsh_matrix: Array3<f32>,
+        bldg_sh_matrix: Array3<f32>,
+        veg_sh_matrix: Array3<f32>,
+        veg_blocks_bldg_sh_matrix: Array3<f32>,
     ) -> PyResult<Py<SvfResult>> {
         // Apply correction factors (matching Python code)
         self.svf_s += LAST_ANNULUS_CORRECTION;
@@ -204,22 +204,23 @@ impl PatchContribution {
         self.svf_s.mapv_inplace(|x| x.min(1.0));
         self.svf_w.mapv_inplace(|x| x.min(1.0));
 
-        // Process vegetation arrays if needed
+        // Process veg arrays if needed
         if usevegdem {
-            // Create correction array for vegetation components
-            let last_veg = Array::from_shape_fn((self.rows, self.cols), |(r, c)| {
-                if vegdem2[[r, c]] == 0.0 {
-                    LAST_ANNULUS_CORRECTION
-                } else {
-                    0.0
-                }
-            });
+            // Create correction array for veg components
+            let last_veg =
+                Array::from_shape_fn((self.num_rows, self.num_cols), |(row_idx, col_idx)| {
+                    if vegdem2[[row_idx, col_idx]] == 0.0 {
+                        LAST_ANNULUS_CORRECTION
+                    } else {
+                        0.0
+                    }
+                });
 
             // Apply corrections
             self.svf_veg_s += &last_veg;
             self.svf_veg_w += &last_veg;
-            self.svf_vbssh_veg_s += &last_veg;
-            self.svf_vbssh_veg_w += &last_veg;
+            self.svf_veg_blocks_bldg_sh_s += &last_veg;
+            self.svf_veg_blocks_bldg_sh_w += &last_veg;
 
             // Ensure no values exceed 1.0
             self.svf_veg.mapv_inplace(|x| x.min(1.0));
@@ -227,11 +228,11 @@ impl PatchContribution {
             self.svf_veg_e.mapv_inplace(|x| x.min(1.0));
             self.svf_veg_s.mapv_inplace(|x| x.min(1.0));
             self.svf_veg_w.mapv_inplace(|x| x.min(1.0));
-            self.svf_vbssh_veg.mapv_inplace(|x| x.min(1.0));
-            self.svf_vbssh_veg_n.mapv_inplace(|x| x.min(1.0));
-            self.svf_vbssh_veg_e.mapv_inplace(|x| x.min(1.0));
-            self.svf_vbssh_veg_s.mapv_inplace(|x| x.min(1.0));
-            self.svf_vbssh_veg_w.mapv_inplace(|x| x.min(1.0));
+            self.svf_veg_blocks_bldg_sh.mapv_inplace(|x| x.min(1.0));
+            self.svf_veg_blocks_bldg_sh_n.mapv_inplace(|x| x.min(1.0));
+            self.svf_veg_blocks_bldg_sh_e.mapv_inplace(|x| x.min(1.0));
+            self.svf_veg_blocks_bldg_sh_s.mapv_inplace(|x| x.min(1.0));
+            self.svf_veg_blocks_bldg_sh_w.mapv_inplace(|x| x.min(1.0));
         }
 
         Py::new(
@@ -247,21 +248,37 @@ impl PatchContribution {
                 svf_veg_east: self.svf_veg_e.into_pyarray(py).unbind(),
                 svf_veg_south: self.svf_veg_s.into_pyarray(py).unbind(),
                 svf_veg_west: self.svf_veg_w.into_pyarray(py).unbind(),
-                svf_vbssh_veg: self.svf_vbssh_veg.into_pyarray(py).unbind(),
-                svf_vbssh_veg_north: self.svf_vbssh_veg_n.into_pyarray(py).unbind(),
-                svf_vbssh_veg_east: self.svf_vbssh_veg_e.into_pyarray(py).unbind(),
-                svf_vbssh_veg_south: self.svf_vbssh_veg_s.into_pyarray(py).unbind(),
-                svf_vbssh_veg_west: self.svf_vbssh_veg_w.into_pyarray(py).unbind(),
-                shadow_matrix: shadow_matrix.into_pyarray(py).unbind(),
-                veg_shadow_matrix: veg_shadow_matrix.into_pyarray(py).unbind(),
-                vbshvegsh_matrix: vbshvegsh_matrix.into_pyarray(py).unbind(),
+                svf_veg_blocks_bldg_sh: self.svf_veg_blocks_bldg_sh.into_pyarray(py).unbind(),
+                svf_veg_blocks_bldg_sh_north: self
+                    .svf_veg_blocks_bldg_sh_n
+                    .into_pyarray(py)
+                    .unbind(),
+                svf_veg_blocks_bldg_sh_east: self
+                    .svf_veg_blocks_bldg_sh_e
+                    .into_pyarray(py)
+                    .unbind(),
+                svf_veg_blocks_bldg_sh_south: self
+                    .svf_veg_blocks_bldg_sh_s
+                    .into_pyarray(py)
+                    .unbind(),
+                svf_veg_blocks_bldg_sh_west: self
+                    .svf_veg_blocks_bldg_sh_w
+                    .into_pyarray(py)
+                    .unbind(),
+                bldg_sh_matrix: bldg_sh_matrix.into_pyarray(py).unbind(),
+                veg_sh_matrix: veg_sh_matrix.into_pyarray(py).unbind(),
+                veg_blocks_bldg_sh_matrix: veg_blocks_bldg_sh_matrix.into_pyarray(py).unbind(),
             },
         )
     }
 }
 
 // --- Helper Functions ---
-fn calculate_amaxvalue(dsm: ArrayView2<f32>, vegdem: ArrayView2<f32>, usevegdem: bool) -> f32 {
+fn calculate_max_height_diff(
+    dsm: ArrayView2<f32>,
+    vegdem: ArrayView2<f32>,
+    usevegdem: bool,
+) -> f32 {
     let dsm_max = dsm.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
     if usevegdem {
         let vegmax = vegdem.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
@@ -300,11 +317,11 @@ pub fn calculate_svf(
     let vegdem_f32 = vegdem_py.as_array();
     let vegdem2_f32 = vegdem2_py.as_array(); // Keep f32 version for finalize step
 
-    let rows = dsm_f32.nrows();
-    let cols = dsm_f32.ncols();
+    let num_rows = dsm_f32.nrows();
+    let num_cols = dsm_f32.ncols();
 
     // Calculate maximum height for shadow calculations
-    let amaxvalue = calculate_amaxvalue(dsm_f32, vegdem_f32, usevegdem);
+    let max_height_diff = calculate_max_height_diff(dsm_f32, vegdem_f32, usevegdem);
 
     // Prepare bushes
     let bush_f32 = prepare_bushes(vegdem_f32.view(), vegdem2_f32.view());
@@ -314,15 +331,15 @@ pub fn calculate_svf(
     let total_patches = patches.len(); // Needed for 3D array dimensions
 
     // Initialize 3D arrays to store shadow maps for each patch
-    let mut shadow_matrix = Array::zeros((rows, cols, total_patches));
-    let mut veg_shadow_matrix = Array::zeros((rows, cols, total_patches));
-    let mut vbshvegsh_matrix = Array::zeros((rows, cols, total_patches));
+    let mut bldg_sh_matrix = Array::zeros((num_rows, num_cols, total_patches));
+    let mut veg_sh_matrix = Array::zeros((num_rows, num_cols, total_patches));
+    let mut veg_blocks_bldg_sh_matrix = Array::zeros((num_rows, num_cols, total_patches));
 
     // Process all patches in parallel using Rayon, collect results
     let results_vec: Vec<_> = patches
         .par_iter()
         .enumerate() // Get index along with patch
-        .map(|(index, patch)| {
+        .map(|(patch_idx, patch)| {
             let dsm_view = dsm_f32.view();
             let vegdem_adj_view = vegdem_f32.view();
             let vegdem2_adj_view = vegdem2_f32.view();
@@ -335,7 +352,7 @@ pub fn calculate_svf(
                 patch.azimuth,
                 patch.altitude,
                 scale,
-                amaxvalue,
+                max_height_diff,
                 bush_view,
                 None,
                 None,
@@ -344,69 +361,77 @@ pub fn calculate_svf(
             );
 
             // --- Calculate SVF contribution for this patch ---
-            let mut contribution = PatchContribution::zeros(rows, cols);
-            let sh_view = shadow_result.bldg_shadow_map.view(); // Borrow for calculations
+            let mut contribution = PatchContribution::zeros(num_rows, num_cols);
+            let bldg_sh_view = shadow_result.bldg_sh.view(); // Borrow for calculations
 
             let n = 90.0;
             let common_w_factor = (1.0 / (2.0 * PI)) * (PI / (2.0 * n)).sin();
             let steprad_iso = (360.0 / patch.azimuth_patches) * (PI / 180.0);
             let steprad_aniso = (360.0 / patch.azimuth_patches_aniso) * (PI / 180.0);
 
-            for altitude in patch.annulino_start..=patch.annulino_end {
-                let annulus = 91.0 - altitude as f32;
+            for annulus_idx in patch.annulino_start..=patch.annulino_end {
+                let annulus = 91.0 - annulus_idx as f32;
                 let sin_term = ((PI * (2.0 * annulus - 1.0)) / (2.0 * n)).sin();
                 let common_w_part = common_w_factor * sin_term;
 
                 let weight_iso = steprad_iso * common_w_part;
                 let weight_aniso = steprad_aniso * common_w_part;
 
-                contribution.svf.scaled_add(weight_iso, &sh_view);
+                contribution.svf.scaled_add(weight_iso, &bldg_sh_view);
 
                 if patch.azimuth >= 0.0 && patch.azimuth < 180.0 {
-                    contribution.svf_e.scaled_add(weight_aniso, &sh_view);
+                    contribution.svf_e.scaled_add(weight_aniso, &bldg_sh_view);
                 }
                 if patch.azimuth >= 90.0 && patch.azimuth < 270.0 {
-                    contribution.svf_s.scaled_add(weight_aniso, &sh_view);
+                    contribution.svf_s.scaled_add(weight_aniso, &bldg_sh_view);
                 }
                 if patch.azimuth >= 180.0 && patch.azimuth < 360.0 {
-                    contribution.svf_w.scaled_add(weight_aniso, &sh_view);
+                    contribution.svf_w.scaled_add(weight_aniso, &bldg_sh_view);
                 }
                 if patch.azimuth >= 270.0 || patch.azimuth < 90.0 {
-                    contribution.svf_n.scaled_add(weight_aniso, &sh_view);
+                    contribution.svf_n.scaled_add(weight_aniso, &bldg_sh_view);
                 }
 
                 if usevegdem {
-                    let vegsh_view = shadow_result.veg_shadow_map.view();
-                    let vbshvegsh_view = shadow_result.vbshvegsh.view();
+                    let veg_sh_view = shadow_result.veg_sh.view();
+                    let veg_blocks_bldg_sh_view = shadow_result.veg_blocks_bldg_sh.view();
 
-                    contribution.svf_veg.scaled_add(weight_iso, &vegsh_view);
+                    contribution.svf_veg.scaled_add(weight_iso, &veg_sh_view);
                     contribution
-                        .svf_vbssh_veg
-                        .scaled_add(weight_iso, &vbshvegsh_view);
+                        .svf_veg_blocks_bldg_sh
+                        .scaled_add(weight_iso, &veg_blocks_bldg_sh_view);
 
                     if patch.azimuth >= 0.0 && patch.azimuth < 180.0 {
-                        contribution.svf_veg_e.scaled_add(weight_aniso, &vegsh_view);
                         contribution
-                            .svf_vbssh_veg_e
-                            .scaled_add(weight_aniso, &vbshvegsh_view);
+                            .svf_veg_e
+                            .scaled_add(weight_aniso, &veg_sh_view);
+                        contribution
+                            .svf_veg_blocks_bldg_sh_e
+                            .scaled_add(weight_aniso, &veg_blocks_bldg_sh_view);
                     }
                     if patch.azimuth >= 90.0 && patch.azimuth < 270.0 {
-                        contribution.svf_veg_s.scaled_add(weight_aniso, &vegsh_view);
                         contribution
-                            .svf_vbssh_veg_s
-                            .scaled_add(weight_aniso, &vbshvegsh_view);
+                            .svf_veg_s
+                            .scaled_add(weight_aniso, &veg_sh_view);
+                        contribution
+                            .svf_veg_blocks_bldg_sh_s
+                            .scaled_add(weight_aniso, &veg_blocks_bldg_sh_view);
                     }
                     if patch.azimuth >= 180.0 && patch.azimuth < 360.0 {
-                        contribution.svf_veg_w.scaled_add(weight_aniso, &vegsh_view);
                         contribution
-                            .svf_vbssh_veg_w
-                            .scaled_add(weight_aniso, &vbshvegsh_view);
+                            .svf_veg_w
+                            .scaled_add(weight_aniso, &veg_sh_view);
+                        contribution
+                            .svf_veg_blocks_bldg_sh_w
+                            .scaled_add(weight_aniso, &veg_blocks_bldg_sh_view);
                     }
                     if patch.azimuth >= 270.0 || patch.azimuth < 90.0 {
-                        contribution.svf_veg_n.scaled_add(weight_aniso, &vegsh_view);
                         contribution
-                            .svf_vbssh_veg_n
-                            .scaled_add(weight_aniso, &vbshvegsh_view);
+                            .svf_veg_n
+                            .scaled_add(weight_aniso, &veg_sh_view);
+                        contribution
+                            .svf_veg_blocks_bldg_sh_n
+                            .scaled_add(weight_aniso, &veg_blocks_bldg_sh_view);
                     }
                 }
             }
@@ -414,33 +439,33 @@ pub fn calculate_svf(
 
             // Return index, contribution, and owned shadow maps for later assignment
             (
-                index,
+                patch_idx,
                 contribution,
-                shadow_result.bldg_shadow_map, // Move ownership
-                shadow_result.veg_shadow_map,  // Move ownership
-                shadow_result.vbshvegsh,       // Move ownership
+                shadow_result.bldg_sh,            // Move ownership
+                shadow_result.veg_sh,             // Move ownership
+                shadow_result.veg_blocks_bldg_sh, // Move ownership
             )
         })
         .collect(); // Collect results from all threads
 
     // --- Combine results sequentially after parallel processing ---
-    let mut final_contribution = PatchContribution::zeros(rows, cols);
-    for (index, contrib, bldg_map, veg_map, vbsh_map) in results_vec {
+    let mut final_contribution = PatchContribution::zeros(num_rows, num_cols);
+    for (patch_idx, contrib, bldg_map, veg_map, veg_blocks_bldg_sh_map) in results_vec {
         // Combine the SVF contributions
         final_contribution = final_contribution.combine(contrib);
 
         // Assign the shadow maps to the correct slice in the 3D arrays using s! macro
         // This happens sequentially after parallel computation is finished.
-        shadow_matrix
-            .slice_mut(ndarray::s![.., .., index])
+        bldg_sh_matrix
+            .slice_mut(ndarray::s![.., .., patch_idx])
             .assign(&bldg_map);
         if usevegdem {
-            veg_shadow_matrix
-                .slice_mut(ndarray::s![.., .., index])
+            veg_sh_matrix
+                .slice_mut(ndarray::s![.., .., patch_idx])
                 .assign(&veg_map);
-            vbshvegsh_matrix
-                .slice_mut(ndarray::s![.., .., index])
-                .assign(&vbsh_map);
+            veg_blocks_bldg_sh_matrix
+                .slice_mut(ndarray::s![.., .., patch_idx])
+                .assign(&veg_blocks_bldg_sh_map);
         }
     }
 
@@ -449,8 +474,8 @@ pub fn calculate_svf(
         py,
         usevegdem,
         vegdem2_f32,
-        shadow_matrix,
-        veg_shadow_matrix,
-        vbshvegsh_matrix,
+        bldg_sh_matrix,
+        veg_sh_matrix,
+        veg_blocks_bldg_sh_matrix,
     )
 }

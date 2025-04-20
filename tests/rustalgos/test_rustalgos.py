@@ -9,7 +9,7 @@ from umep.util.SEBESOLWEIGCommonFiles.shadowingfunction_wallheight_23 import sha
 
 
 def test_shadowing():
-    # Test shadowingfunction_wallheight_23 vs shadowingfunction_wallheight_25 for speed
+    # Test shadowingfunction_wallheight_23 vs calculate_shadows_wall_ht_25 for speed
     repeats = 3
     dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp = make_test_arrays(resolution=1)
 
@@ -22,55 +22,57 @@ def test_shadowing():
     print_timing_stats("shadowingfunction_wallheight_23", times_py)
 
     def run_rust():
-        shadowing.shadowingfunction_wallheight_25(
+        shadowing.calculate_shadows_wall_ht_25(
             dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0, None, None
         )
 
     times_rust = timeit.repeat(run_rust, number=1, repeat=repeats)
-    print_timing_stats("shadowing.shadowingfunction_wallheight_25", times_rust)
+    print_timing_stats("shadowing.calculate_shadows_wall_ht_25", times_rust)
 
     # Print relative speed as percentage
     relative_speed(times_py, times_rust)
 
     # Run Python version
-    vegsh, sh, vbshvegsh, wallsh, wallsun, wallshve, facesh, facesun = shadowingfunction_wallheight_23(
-        dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0
+    veg_sh, bldg_sh, veg_blocks_bldg_sh, wall_sh, wall_sun, wall_sh_veg, face_sh, face_sun = (
+        shadowingfunction_wallheight_23(
+            dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0
+        )
     )
     result_py = {
-        "veg_shadow_map": vegsh,
-        "bldg_shadow_map": sh,
-        "vbshvegsh": vbshvegsh,
-        "wallsh": wallsh,
-        "wallsun": wallsun,
-        "wallshve": wallshve,
-        "facesh": facesh,
-        "facesun": facesun,
+        "veg_sh": veg_sh,
+        "bldg_sh": bldg_sh,
+        "veg_blocks_bldg_sh": veg_blocks_bldg_sh,
+        "wall_sh": wall_sh,
+        "wall_sun": wall_sun,
+        "wall_sh_veg": wall_sh_veg,
+        "face_sh": face_sh,
+        "face_sun": face_sun,
     }
     # Run Rust version
-    result_rust = shadowing.shadowingfunction_wallheight_25(
+    result_rust = shadowing.calculate_shadows_wall_ht_25(
         dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0, None, None
     )
     key_map = {
-        "veg_shadow_map": "veg_shadow_map",
-        "bldg_shadow_map": "bldg_shadow_map",
-        "vbshvegsh": "vbshvegsh",
-        "wallsh": "wallsh",
-        "wallsun": "wallsun",
-        "wallshve": "wallshve",
-        "facesh": "facesh",
-        "facesun": "facesun",
+        "veg_sh": "veg_sh",
+        "bldg_sh": "bldg_sh",
+        "veg_blocks_bldg_sh": "veg_blocks_bldg_sh",
+        "wall_sh": "wall_sh",
+        "wall_sun": "wall_sun",
+        "wall_sh_veg": "wall_sh_veg",
+        "face_sh": "face_sh",
+        "face_sun": "face_sun",
     }
     # Compare results
     compare_results(result_py, result_rust, key_map, atol=0.0001)
     # Plot visual residuals
-    plot_visual_residuals(sh, result_rust.bldg_shadow_map, title_prefix="Building Shadows")
-    plot_visual_residuals(vegsh, result_rust.veg_shadow_map, title_prefix="Vegetation Shadows")
-    plot_visual_residuals(vbshvegsh, result_rust.vbshvegsh, title_prefix="vbshvegsh Shadows")
-    plot_visual_residuals(wallsh, result_rust.wallsh, title_prefix="wallsh Shadows")
-    plot_visual_residuals(wallsun, result_rust.wallsun, title_prefix="wallsun Shadows")
-    plot_visual_residuals(wallshve, result_rust.wallshve, title_prefix="wallshve Shadows")
-    plot_visual_residuals(facesh, result_rust.facesh, title_prefix="facesh Shadows")
-    plot_visual_residuals(facesun, result_rust.facesun, title_prefix="facesun Shadows")
+    plot_visual_residuals(bldg_sh, result_rust.bldg_sh, title_prefix="Building Shadows")
+    plot_visual_residuals(veg_sh, result_rust.veg_sh, title_prefix="Vegetation Shadows")
+    plot_visual_residuals(veg_blocks_bldg_sh, result_rust.veg_blocks_bldg_sh, title_prefix="Veg Blocks Bldg Shadows")
+    plot_visual_residuals(wall_sh, result_rust.wall_sh, title_prefix="Wall Shadows")
+    plot_visual_residuals(wall_sun, result_rust.wall_sun, title_prefix="Wall Sun")
+    plot_visual_residuals(wall_sh_veg, result_rust.wall_sh_veg, title_prefix="Wall Sh Veg")
+    plot_visual_residuals(face_sh, result_rust.face_sh, title_prefix="Face Sh")
+    plot_visual_residuals(face_sun, result_rust.face_sun, title_prefix="Face Sun")
 
 
 def test_svf():
@@ -109,14 +111,11 @@ def test_svf():
         "svfSveg": "svf_veg_south",
         "svfWveg": "svf_veg_west",
         "svfNveg": "svf_veg_north",
-        "svfaveg": "svf_vbssh_veg",
-        "svfEaveg": "svf_vbssh_veg_east",
-        "svfSaveg": "svf_vbssh_veg_south",
-        "svfWaveg": "svf_vbssh_veg_west",
-        "svfNaveg": "svf_vbssh_veg_north",
-        "shmat": "shadow_matrix",
-        "vegshmat": "veg_shadow_matrix",
-        "vbshvegshmat": "vbshvegsh_matrix",
+        "svfaveg": "svf_veg_blocks_bldg_sh",
+        "svfEaveg": "svf_veg_blocks_bldg_sh_east",
+        "svfSaveg": "svf_veg_blocks_bldg_sh_south",
+        "svfWaveg": "svf_veg_blocks_bldg_sh_west",
+        "svfNaveg": "svf_veg_blocks_bldg_sh_north",
     }
     compare_results(result_py, result_rust, key_map, atol=0.0001)
 
@@ -132,11 +131,19 @@ def test_svf():
     plot_visual_residuals(result_py["svfSveg"], result_rust.svf_veg_south, title_prefix="Svf South Veg")
     plot_visual_residuals(result_py["svfWveg"], result_rust.svf_veg_west, title_prefix="Svf West Veg")
     plot_visual_residuals(result_py["svfNveg"], result_rust.svf_veg_north, title_prefix="Svf North Veg")
-    plot_visual_residuals(result_py["svfaveg"], result_rust.svf_vbssh_veg, title_prefix="Svf vbssh Veg")
-    plot_visual_residuals(result_py["svfEaveg"], result_rust.svf_vbssh_veg_east, title_prefix="Svf East vbssh Veg")
-    plot_visual_residuals(result_py["svfSaveg"], result_rust.svf_vbssh_veg_south, title_prefix="Svf South vbssh Veg")
-    plot_visual_residuals(result_py["svfWaveg"], result_rust.svf_vbssh_veg_west, title_prefix="Svf West vbssh Veg")
-    plot_visual_residuals(result_py["svfNaveg"], result_rust.svf_vbssh_veg_north, title_prefix="Svf North vbssh Veg")
+    plot_visual_residuals(result_py["svfaveg"], result_rust.svf_veg_blocks_bldg_sh, title_prefix="Svf vbssh Veg")
+    plot_visual_residuals(
+        result_py["svfEaveg"], result_rust.svf_veg_blocks_bldg_sh_east, title_prefix="Svf East vbssh Veg"
+    )
+    plot_visual_residuals(
+        result_py["svfSaveg"], result_rust.svf_veg_blocks_bldg_sh_south, title_prefix="Svf South vbssh Veg"
+    )
+    plot_visual_residuals(
+        result_py["svfWaveg"], result_rust.svf_veg_blocks_bldg_sh_west, title_prefix="Svf West vbssh Veg"
+    )
+    plot_visual_residuals(
+        result_py["svfNaveg"], result_rust.svf_veg_blocks_bldg_sh_north, title_prefix="Svf North vbssh Veg"
+    )
 
 
 def make_test_arrays(
@@ -189,7 +196,7 @@ def compare_results(result_py, result_rust, key_map, atol=0.0001):
         )
         range_diff = np.nanmax(py_val) - np.nanmin(py_val) if py_val is not None else float("nan")
         print(
-            f"{py_key:<15} vs {rust_attr:<20} right: {match_pct:.2f} mean diff: {mean_diff:.3f} range: {range_diff:.2f}"
+            f"{py_key:<20} vs {rust_attr:<35} right: {match_pct:.2f} mean diff: {mean_diff:.3f} range: {range_diff:.2f}"
         )
 
 
