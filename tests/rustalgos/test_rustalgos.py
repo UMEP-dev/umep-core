@@ -132,19 +132,11 @@ def test_svf():
     plot_visual_residuals(result_py["svfSveg"], result_rust.svf_veg_south, title_prefix="Svf South Veg")
     plot_visual_residuals(result_py["svfWveg"], result_rust.svf_veg_west, title_prefix="Svf West Veg")
     plot_visual_residuals(result_py["svfNveg"], result_rust.svf_veg_north, title_prefix="Svf North Veg")
-    plot_visual_residuals(result_py["svfaveg"], result_rust.svf_vbssh_veg, title_prefix="Svf Anisotropic Veg")
-    plot_visual_residuals(
-        result_py["svfEaveg"], result_rust.svf_vbssh_veg_east, title_prefix="Svf East Anisotropic Veg"
-    )
-    plot_visual_residuals(
-        result_py["svfSaveg"], result_rust.svf_vbssh_veg_south, title_prefix="Svf South Anisotropic Veg"
-    )
-    plot_visual_residuals(
-        result_py["svfWaveg"], result_rust.svf_vbssh_veg_west, title_prefix="Svf West Anisotropic Veg"
-    )
-    plot_visual_residuals(
-        result_py["svfNaveg"], result_rust.svf_vbssh_veg_north, title_prefix="Svf North Anisotropic Veg"
-    )
+    plot_visual_residuals(result_py["svfaveg"], result_rust.svf_vbssh_veg, title_prefix="Svf vbssh Veg")
+    plot_visual_residuals(result_py["svfEaveg"], result_rust.svf_vbssh_veg_east, title_prefix="Svf East vbssh Veg")
+    plot_visual_residuals(result_py["svfSaveg"], result_rust.svf_vbssh_veg_south, title_prefix="Svf South vbssh Veg")
+    plot_visual_residuals(result_py["svfWaveg"], result_rust.svf_vbssh_veg_west, title_prefix="Svf West vbssh Veg")
+    plot_visual_residuals(result_py["svfNaveg"], result_rust.svf_vbssh_veg_north, title_prefix="Svf North vbssh Veg")
 
 
 def make_test_arrays(

@@ -381,7 +381,7 @@ pub fn calculate_svf(
 
                     // Accumulate isotropic vegetation SVF (Matches Python)
                     contribution.svf_veg.scaled_add(weight_iso, &vegsh_view);
-                    // Accumulate isotropic anisotropic vegetation SVF (Matches Python svfaveg)
+                    // Accumulate anisotropic vegetation SVF (Matches Python svfaveg)
                     contribution
                         .svf_vbssh_veg
                         .scaled_add(weight_iso, &vbshvegsh_view);
