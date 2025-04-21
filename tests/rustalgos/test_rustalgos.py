@@ -2,6 +2,7 @@ import timeit
 
 import matplotlib.pyplot as plt
 import numpy as np
+from memory_profiler import memory_usage
 from umep import common
 from umep.functions.svf_functions import svfForProcessing153
 from umep.rustalgos import shadowing, skyview
@@ -9,28 +10,36 @@ from umep.util.SEBESOLWEIGCommonFiles.shadowingfunction_wallheight_23 import sha
 
 
 def test_shadowing():
-    # Test shadowingfunction_wallheight_23 vs calculate_shadows_wall_ht_25 for speed
+    # Test shadowingfunction_wallheight_23 vs calculate_shadows_wall_ht_25 for speed and memory
     repeats = 3
     dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp = make_test_arrays(resolution=1)
 
+    # --- Timing only (no memory profiling) ---
     def run_py():
         shadowingfunction_wallheight_23(
             dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0
         )
-
-    times_py = timeit.repeat(run_py, number=1, repeat=repeats)
-    print_timing_stats("shadowingfunction_wallheight_23", times_py)
 
     def run_rust():
         shadowing.calculate_shadows_wall_ht_25(
             dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0, None, None
         )
 
-    times_rust = timeit.repeat(run_rust, number=1, repeat=repeats)
-    print_timing_stats("shadowing.calculate_shadows_wall_ht_25", times_rust)
+    py_timings = timeit.repeat(run_py, number=1, repeat=repeats)
+    print_timing_stats("shadowingfunction_wallheight_23", py_timings)
+
+    rust_timings = timeit.repeat(run_rust, number=1, repeat=repeats)
+    print_timing_stats("shadowing.calculate_shadows_wall_ht_25", rust_timings)
 
     # Print relative speed as percentage
-    relative_speed(times_py, times_rust)
+    relative_speed(py_timings, rust_timings)
+
+    # --- Memory profiling only (no timing) ---
+    py_memory = memory_usage(run_py, max_usage=True)
+    print(f"shadowingfunction_wallheight_23: max memory usage: {py_memory:.2f} MiB")
+
+    rust_memory = memory_usage(run_rust, max_usage=True)
+    print(f"shadowing.calculate_shadows_wall_ht_25: max memory usage: {rust_memory:.2f} MiB")
 
     # Run Python version
     veg_sh, bldg_sh, veg_blocks_bldg_sh, wall_sh, wall_sun, wall_sh_veg, face_sh, face_sun = (
@@ -80,20 +89,28 @@ def test_svf():
     repeats = 1
     dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp = make_test_arrays(resolution=2)
 
+    # --- Timing only (no memory profiling) ---
     def run_py():
         svfForProcessing153(dsm, vegdsm, vegdsm2, scale, 1)
 
-    times_py = timeit.repeat(run_py, number=1, repeat=repeats)
-    print_timing_stats("svfForProcessing153", times_py)
-
     def run_rust():
         skyview.calculate_svf(dsm, vegdsm, vegdsm2, scale, True, 2)
+
+    times_py = timeit.repeat(run_py, number=1, repeat=repeats)
+    print_timing_stats("svfForProcessing153", times_py)
 
     times_rust = timeit.repeat(run_rust, number=1, repeat=repeats)
     print_timing_stats("skyview.calculate_svf", times_rust)
 
     # Print relative speed as percentage
     relative_speed(times_py, times_rust)
+
+    # --- Memory profiling only (no timing) ---
+    py_memory = memory_usage(run_py, max_usage=True)
+    print(f"svfForProcessing153: max memory usage: {py_memory:.2f} MiB")
+
+    rust_memory = memory_usage(run_rust, max_usage=True)
+    print(f"skyview.calculate_svf: max memory usage: {rust_memory:.2f} MiB")
 
     # Run Python version
     result_py = svfForProcessing153(dsm, vegdsm, vegdsm2, scale, 1)
