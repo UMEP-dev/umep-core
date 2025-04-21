@@ -3,6 +3,7 @@ use numpy::{IntoPyArray, PyArray2, PyArray3, PyReadonlyArray2};
 use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::f32::consts::PI;
+use std::sync::{Arc, Mutex};
 
 // Import the correct result struct from shadowing
 use crate::shadowing::{calculate_shadows_rust, ShadowingResultRust};
@@ -289,12 +290,15 @@ fn calculate_max_height_diff(
 }
 
 fn prepare_bushes(vegdem: ArrayView2<f32>, vegdem2: ArrayView2<f32>) -> Array2<f32> {
-    let vegdem_adj = vegdem.to_owned();
-    let vegdem2_adj = vegdem2.to_owned();
-    // Calculate bush areas (vegetation without trunks)
-    let bush_areas = Zip::from(&vegdem_adj)
-        .and(&vegdem2_adj)
-        .par_map_collect(|&v1, &v2| if v2 > 0.0 { 0.0 } else { v1 });
+    // Allocate output array with same shape as input
+    let mut bush_areas = Array2::<f32>::zeros(vegdem.raw_dim());
+    // Fill bush_areas in place, no unnecessary clones
+    Zip::from(&mut bush_areas)
+        .and(&vegdem)
+        .and(&vegdem2)
+        .for_each(|bush, &v1, &v2| {
+            *bush = if v2 > 0.0 { 0.0 } else { v1 };
+        });
     bush_areas
 }
 
@@ -331,14 +335,27 @@ pub fn calculate_svf(
     let total_patches = patches.len(); // Needed for 3D array dimensions
 
     // Initialize 3D arrays to store shadow maps for each patch
-    let mut bldg_sh_matrix = Array::zeros((num_rows, num_cols, total_patches));
-    let mut veg_sh_matrix = Array::zeros((num_rows, num_cols, total_patches));
-    let mut veg_blocks_bldg_sh_matrix = Array::zeros((num_rows, num_cols, total_patches));
+    // wrapped in Arc<Mutex<...>> for thread-safe access
+    let bldg_sh_matrix = Arc::new(Mutex::new(Array::zeros((
+        num_rows,
+        num_cols,
+        total_patches,
+    ))));
+    let veg_sh_matrix = Arc::new(Mutex::new(Array::zeros((
+        num_rows,
+        num_cols,
+        total_patches,
+    ))));
+    let veg_blocks_bldg_sh_matrix = Arc::new(Mutex::new(Array::zeros((
+        num_rows,
+        num_cols,
+        total_patches,
+    ))));
 
-    // Process all patches in parallel using Rayon, collect results
-    let results_vec: Vec<_> = patches
+    // Use parallel iterator with reduce to avoid collecting all results in memory
+    let final_contribution = patches
         .par_iter()
-        .enumerate() // Get index along with patch
+        .enumerate()
         .map(|(patch_idx, patch)| {
             let dsm_view = dsm_f32.view();
             let vegdem_adj_view = vegdem_f32.view();
@@ -362,7 +379,7 @@ pub fn calculate_svf(
 
             // --- Calculate SVF contribution for this patch ---
             let mut contribution = PatchContribution::zeros(num_rows, num_cols);
-            let bldg_sh_view = shadow_result.bldg_sh.view(); // Borrow for calculations
+            let bldg_sh_view = shadow_result.bldg_sh.view();
 
             let n = 90.0;
             let common_w_factor = (1.0 / (2.0 * PI)) * (PI / (2.0 * n)).sin();
@@ -435,39 +452,45 @@ pub fn calculate_svf(
                     }
                 }
             }
-            // Note: If not usevegdem, veg arrays remain zero
 
-            // Return index, contribution, and owned shadow maps for later assignment
-            (
-                patch_idx,
-                contribution,
-                shadow_result.bldg_sh,            // Move ownership
-                shadow_result.veg_sh,             // Move ownership
-                shadow_result.veg_blocks_bldg_sh, // Move ownership
-            )
+            // Assign the shadow maps to the correct slice in the 3D arrays using Mutex for thread safety
+            {
+                let mut bldg_lock = bldg_sh_matrix.lock().unwrap();
+                bldg_lock
+                    .slice_mut(ndarray::s![.., .., patch_idx])
+                    .assign(&shadow_result.bldg_sh);
+            }
+            if usevegdem {
+                let mut veg_lock = veg_sh_matrix.lock().unwrap();
+                veg_lock
+                    .slice_mut(ndarray::s![.., .., patch_idx])
+                    .assign(&shadow_result.veg_sh);
+                let mut veg_blocks_lock = veg_blocks_bldg_sh_matrix.lock().unwrap();
+                veg_blocks_lock
+                    .slice_mut(ndarray::s![.., .., patch_idx])
+                    .assign(&shadow_result.veg_blocks_bldg_sh);
+            }
+
+            contribution
         })
-        .collect(); // Collect results from all threads
+        .reduce(
+            || PatchContribution::zeros(num_rows, num_cols),
+            |a, b| a.combine(b),
+        );
 
-    // --- Combine results sequentially after parallel processing ---
-    let mut final_contribution = PatchContribution::zeros(num_rows, num_cols);
-    for (patch_idx, contrib, bldg_map, veg_map, veg_blocks_bldg_sh_map) in results_vec {
-        // Combine the SVF contributions
-        final_contribution = final_contribution.combine(contrib);
-
-        // Assign the shadow maps to the correct slice in the 3D arrays using s! macro
-        // This happens sequentially after parallel computation is finished.
-        bldg_sh_matrix
-            .slice_mut(ndarray::s![.., .., patch_idx])
-            .assign(&bldg_map);
-        if usevegdem {
-            veg_sh_matrix
-                .slice_mut(ndarray::s![.., .., patch_idx])
-                .assign(&veg_map);
-            veg_blocks_bldg_sh_matrix
-                .slice_mut(ndarray::s![.., .., patch_idx])
-                .assign(&veg_blocks_bldg_sh_map);
-        }
-    }
+    // Unwrap the matrices from Arc<Mutex<...>>
+    let bldg_sh_matrix = Arc::try_unwrap(bldg_sh_matrix)
+        .unwrap()
+        .into_inner()
+        .unwrap();
+    let veg_sh_matrix = Arc::try_unwrap(veg_sh_matrix)
+        .unwrap()
+        .into_inner()
+        .unwrap();
+    let veg_blocks_bldg_sh_matrix = Arc::try_unwrap(veg_blocks_bldg_sh_matrix)
+        .unwrap()
+        .into_inner()
+        .unwrap();
 
     // Finalize and return results - pass the populated 3D arrays
     final_contribution.finalize(
