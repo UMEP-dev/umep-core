@@ -119,11 +119,11 @@ if not Path.exists(working_path / f"svf_{pixel_res}m"):
 
 # %%
 # POIs for sampling UTCI
-pois_gdf = gpd.read_file("tests/data/athens/pois.gpkg")
+pois_gdf = gpd.read_file("demos/data/athens/pois.gpkg")
 # iter EPWs
 for epw_path, solweig_dir_name, start_date_Ymd, end_date_Ymd in [
     (
-        "tests/data/athens/athens_2050.epw",
+        "demos/data/athens/athens_2050.epw",
         "solweig_2050_07",
         "2050-07-21",
         "2050-07-22",
@@ -133,9 +133,9 @@ for epw_path, solweig_dir_name, start_date_Ymd, end_date_Ymd in [
         # run algorithm - requires paths to files calculated in previous steps
         solweig_algorithm.generate_solweig(
             dsm_path=working_path_str + f"/DSM_{pixel_res}m.tif",
-            wall_ht_path=working_path_str + f"/walls/wall_hts_{pixel_res}m.tif",
-            wall_aspect_path=working_path_str + f"/walls/wall_aspects_{pixel_res}m.tif",
-            svf_path=working_path_str + "/svf/svfs.zip",
+            wall_ht_path=working_path_str + f"/walls_{pixel_res}m/wall_hts.tif",
+            wall_aspect_path=working_path_str + f"/walls_{pixel_res}m/wall_aspects.tif",
+            svf_path=working_path_str + f"/svf_{pixel_res}m/svfs.zip",
             # the EPW file
             epw_path=epw_path,
             # the bounding box
