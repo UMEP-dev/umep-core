@@ -62,16 +62,16 @@ fn get_view_value(view: &ArrayView2<f32>, r: isize, c: isize, rows: usize, cols:
 
 /// Internal Rust function for shadow calculations.
 /// Operates purely on ndarray types.
-#[allow(clippy::too_many_arguments)] // Keep arguments for clarity
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn calculate_shadows_rust(
-    dsm_view: ArrayView2<f32>,
-    veg_canopy_dsm_view: ArrayView2<f32>,
-    veg_trunk_dsm_view: ArrayView2<f32>,
     azimuth_deg: f32,
     altitude_deg: f32,
     scale: f32,
     max_height_diff: f32,
-    bush_view: ArrayView2<f32>,
+    dsm_view: ArrayView2<f32>,
+    veg_canopy_dsm_view_opt: Option<ArrayView2<f32>>,
+    veg_trunk_dsm_view_opt: Option<ArrayView2<f32>>,
+    bush_view_opt: Option<ArrayView2<f32>>,
     walls_view_opt: Option<ArrayView2<f32>>,
     aspect_view_opt: Option<ArrayView2<f32>>,
     walls_scheme_view_opt: Option<ArrayView2<f32>>,
@@ -80,22 +80,37 @@ pub(crate) fn calculate_shadows_rust(
     let shape = dsm_view.shape();
     let num_rows = shape[0];
     let num_cols = shape[1];
+    let dim = (num_rows, num_cols);
 
-    let mut dx: f32 = 0.0;
-    let mut dy: f32 = 0.0;
-    let mut dz: f32 = 0.0;
-    let mut ds: f32;
-    let mut prev_dz: f32 = 0.0;
+    // Determine if all vegetation inputs are present
+    let veg_inputs_present = veg_canopy_dsm_view_opt.is_some()
+        && veg_trunk_dsm_view_opt.is_some()
+        && bush_view_opt.is_some();
 
-    let is_bush_map = bush_view.mapv(|v| if v > 1.0 { 1.0 } else { 0.0 });
-    let mut bldg_sh = Array2::<f32>::zeros((num_rows, num_cols));
-    let mut veg_blocks_bldg_sh = Array2::<f32>::zeros((num_rows, num_cols));
-    let mut veg_sh = is_bush_map;
+    // Allocate arrays for vegetation only if all inputs are present
+    let (mut veg_sh, mut veg_blocks_bldg_sh, mut propagated_veg_sh_height) = if veg_inputs_present {
+        let bush_view = bush_view_opt.as_ref().unwrap();
+        let veg_canopy_dsm_view = veg_canopy_dsm_view_opt.as_ref().unwrap();
+        (
+            bush_view.mapv(|v| if v > 1.0 { 1.0 } else { 0.0 }),
+            Array2::<f32>::zeros(dim),
+            {
+                let mut arr = Array2::<f32>::zeros(dim);
+                arr.assign(veg_canopy_dsm_view);
+                arr
+            },
+        )
+    } else {
+        (
+            Array2::<f32>::zeros(dim),
+            Array2::<f32>::zeros(dim),
+            Array2::<f32>::zeros(dim),
+        )
+    };
 
-    let mut propagated_bldg_sh_height = Array2::<f32>::zeros((num_rows, num_cols));
+    let mut bldg_sh = Array2::<f32>::zeros(dim);
+    let mut propagated_bldg_sh_height = Array2::<f32>::zeros(dim);
     propagated_bldg_sh_height.assign(&dsm_view);
-    let mut propagated_veg_sh_height = Array2::<f32>::zeros((num_rows, num_cols));
-    propagated_veg_sh_height.assign(&veg_canopy_dsm_view);
 
     let azimuth_rad = azimuth_deg.to_radians();
     let altitude_rad = altitude_deg.to_radians();
@@ -107,6 +122,11 @@ pub(crate) fn calculate_shadows_rust(
     let ds_sin = (1.0 / sin_azimuth).abs();
     let ds_cos = (1.0 / cos_azimuth).abs();
     let tan_altitude_by_scale = altitude_rad.tan() / scale;
+    let mut dx: f32 = 0.0;
+    let mut dy: f32 = 0.0;
+    let mut dz: f32 = 0.0;
+    let mut prev_dz: f32 = 0.0;
+    let mut ds: f32;
     let mut index = 0.0;
 
     while max_height_diff >= dz && dx.abs() < num_rows as f32 && dy.abs() < num_cols as f32 {
@@ -124,23 +144,36 @@ pub(crate) fn calculate_shadows_rust(
         dz = (ds * index) * tan_altitude_by_scale;
 
         Zip::indexed(&mut propagated_bldg_sh_height)
-            .and(&mut propagated_veg_sh_height)
             .and(&mut bldg_sh)
-            .and(&mut veg_sh)
-            .par_for_each(
-                |(row_idx, col_idx), prop_bldg_h, prop_veg_h, bldg_sh_flag, veg_sh_flag| {
-                    let dsm_h_target = dsm_view[[row_idx, col_idx]];
+            .par_for_each(|(row_idx, col_idx), prop_bldg_h, bldg_sh_flag| {
+                let dsm_h_target = dsm_view[[row_idx, col_idx]];
+                let source_row_idx = (row_idx as f32 + dx).round() as isize;
+                let source_col_idx = (col_idx as f32 + dy).round() as isize;
+                let source_dsm = get_view_value(
+                    &dsm_view,
+                    source_row_idx,
+                    source_col_idx,
+                    num_rows,
+                    num_cols,
+                );
+                let shifted_dsm = source_dsm - dz;
+                *prop_bldg_h = prop_bldg_h.max(shifted_dsm);
+                *bldg_sh_flag = if *prop_bldg_h > dsm_h_target {
+                    1.0
+                } else {
+                    0.0
+                };
+            });
 
+        if veg_inputs_present {
+            let veg_canopy_dsm_view = veg_canopy_dsm_view_opt.as_ref().unwrap();
+            let veg_trunk_dsm_view = veg_trunk_dsm_view_opt.as_ref().unwrap();
+            Zip::indexed(&mut propagated_veg_sh_height)
+                .and(&mut veg_sh)
+                .par_for_each(|(row_idx, col_idx), prop_veg_h, veg_sh_flag| {
+                    let dsm_h_target = dsm_view[[row_idx, col_idx]];
                     let source_row_idx = (row_idx as f32 + dx).round() as isize;
                     let source_col_idx = (col_idx as f32 + dy).round() as isize;
-
-                    let source_dsm = get_view_value(
-                        &dsm_view,
-                        source_row_idx,
-                        source_col_idx,
-                        num_rows,
-                        num_cols,
-                    );
                     let source_veg_canopy = get_view_value(
                         &veg_canopy_dsm_view,
                         source_row_idx,
@@ -155,22 +188,11 @@ pub(crate) fn calculate_shadows_rust(
                         num_rows,
                         num_cols,
                     );
-
-                    let shifted_dsm = source_dsm - dz;
                     let shifted_veg_canopy = source_veg_canopy - dz;
                     let shifted_veg_trunk = source_veg_trunk - dz;
                     let prev_shifted_veg_canopy = source_veg_canopy - prev_dz;
                     let prev_shifted_veg_trunk = source_veg_trunk - prev_dz;
-
-                    *prop_bldg_h = prop_bldg_h.max(shifted_dsm);
                     *prop_veg_h = prop_veg_h.max(shifted_veg_canopy);
-
-                    *bldg_sh_flag = if *prop_bldg_h > dsm_h_target {
-                        1.0
-                    } else {
-                        0.0
-                    };
-
                     let cond1 = if shifted_veg_canopy > dsm_h_target {
                         1.0
                     } else {
@@ -192,52 +214,49 @@ pub(crate) fn calculate_shadows_rust(
                         0.0
                     };
                     let conditions_sum = cond1 + cond2 + cond3 + cond4;
-
                     let pergola_shadow = if conditions_sum > 0.0 && conditions_sum < 4.0 {
                         1.0
                     } else {
                         0.0
                     };
                     *veg_sh_flag = f32::max(*veg_sh_flag, pergola_shadow);
-                },
-            );
-
-        Zip::from(&mut veg_sh)
-            .and(&bldg_sh)
-            .par_for_each(|veg_sh_flag, &bldg_sh_flag| {
-                if *veg_sh_flag > 0.0 && bldg_sh_flag > 0.0 {
-                    *veg_sh_flag = 0.0;
-                }
-            });
-
-        Zip::from(&mut veg_blocks_bldg_sh)
-            .and(&veg_sh)
-            .par_for_each(|vbs_acc, &veg_sh_flag| {
-                if veg_sh_flag > 0.0 {
-                    *vbs_acc += veg_sh_flag;
-                }
-            });
-
+                });
+            Zip::from(&mut veg_sh)
+                .and(&bldg_sh)
+                .par_for_each(|veg_sh_flag, &bldg_sh_flag| {
+                    if *veg_sh_flag > 0.0 && bldg_sh_flag > 0.0 {
+                        *veg_sh_flag = 0.0;
+                    }
+                });
+            Zip::from(&mut veg_blocks_bldg_sh)
+                .and(&veg_sh)
+                .par_for_each(|vbs_acc, &veg_sh_flag| {
+                    if veg_sh_flag > 0.0 {
+                        *vbs_acc += veg_sh_flag;
+                    }
+                });
+        }
         prev_dz = dz;
         index += 1.0;
     }
 
     bldg_sh.par_mapv_inplace(|v| 1.0 - v);
 
-    veg_blocks_bldg_sh.par_mapv_inplace(|v| if v > 0.0 { 1.0 } else { 0.0 });
-    veg_blocks_bldg_sh = &veg_blocks_bldg_sh - &veg_sh.mapv(|v| if v > 0.0 { 1.0 } else { 0.0 });
-    veg_blocks_bldg_sh.par_mapv_inplace(|v| 1.0 - v.max(0.0));
-
-    veg_sh.par_mapv_inplace(|v| if v > 0.0 { 1.0 } else { 0.0 });
-    veg_sh.par_mapv_inplace(|v| 1.0 - v);
-
-    let final_veg_sh_mask = veg_sh.mapv(|v| 1.0 - v);
-    Zip::from(&mut propagated_veg_sh_height)
-        .and(&dsm_view)
-        .and(&final_veg_sh_mask)
-        .par_for_each(|prop_veg_h, &dsm_h, &mask| {
-            *prop_veg_h = (*prop_veg_h - dsm_h).max(0.0) * mask;
-        });
+    if veg_inputs_present {
+        veg_blocks_bldg_sh.par_mapv_inplace(|v| if v > 0.0 { 1.0 } else { 0.0 });
+        veg_blocks_bldg_sh =
+            &veg_blocks_bldg_sh - &veg_sh.mapv(|v| if v > 0.0 { 1.0 } else { 0.0 });
+        veg_blocks_bldg_sh.par_mapv_inplace(|v| 1.0 - v.max(0.0));
+        veg_sh.par_mapv_inplace(|v| if v > 0.0 { 1.0 } else { 0.0 });
+        veg_sh.par_mapv_inplace(|v| 1.0 - v);
+        let final_veg_sh_mask = veg_sh.mapv(|v| 1.0 - v);
+        Zip::from(&mut propagated_veg_sh_height)
+            .and(&dsm_view)
+            .and(&final_veg_sh_mask)
+            .par_for_each(|prop_veg_h, &dsm_h, &mask| {
+                *prop_veg_h = (*prop_veg_h - dsm_h).max(0.0) * mask;
+            });
+    }
 
     let mut wall_sh: Option<Array2<f32>> = None;
     let mut wall_sun: Option<Array2<f32>> = None;
@@ -437,15 +456,17 @@ fn shade_on_walls(
 /// This function handles Python type conversions and calls the internal Rust shadow calculation logic.
 /// See `calculate_shadows_rust` for core algorithm details.
 ///
+/// Vegetation arguments are optional and only processed if all three are provided.
+///
 /// # Arguments
 /// * `dsm` - Digital Surface Model (buildings, ground)
-/// * `veg_canopy_dsm` - Vegetation canopy height DSM
-/// * `veg_trunk_dsm` - Vegetation trunk height DSM (defines bottom of canopy)
+/// * `veg_canopy_dsm` - Optional: Vegetation canopy height DSM
+/// * `veg_trunk_dsm` - Optional: Vegetation trunk height DSM (defines bottom of canopy)
 /// * `azimuth_deg` - Sun azimuth in degrees (0=N, 90=E, 180=S, 270=W)
 /// * `altitude_deg` - Sun altitude/elevation in degrees (0=horizon, 90=zenith)
 /// * `scale` - Pixel size (meters)
 /// * `max_height_diff` - Maximum height difference in the DSM (optimization hint)
-/// * `bush` - Bush/low vegetation layer (binary or height)
+/// * `bush` - Optional: Bush/low vegetation layer (binary or height)
 /// * `walls` - Optional wall height layer. If None, wall calculations are skipped.
 /// * `aspect` - Optional wall aspect/orientation layer (radians or degrees). Required if `walls` is provided.
 /// * `walls_scheme` - Optional alternative wall height layer for specific calculations
@@ -455,36 +476,59 @@ fn shade_on_walls(
 /// * `ShadowingResult` struct containing various shadow maps (ground, vegetation, walls) as PyArrays.
 pub fn calculate_shadows_wall_ht_25(
     py: Python,
-    dsm: PyReadonlyArray2<f32>,
-    veg_canopy_dsm: PyReadonlyArray2<f32>,
-    veg_trunk_dsm: PyReadonlyArray2<f32>,
     azimuth_deg: f32,
     altitude_deg: f32,
     scale: f32,
     max_height_diff: f32,
-    bush: PyReadonlyArray2<f32>,
+    dsm: PyReadonlyArray2<f32>,
+    veg_canopy_dsm: Option<PyReadonlyArray2<f32>>,
+    veg_trunk_dsm: Option<PyReadonlyArray2<f32>>,
+    bush: Option<PyReadonlyArray2<f32>>,
     walls: Option<PyReadonlyArray2<f32>>,
     aspect: Option<PyReadonlyArray2<f32>>,
     walls_scheme: Option<PyReadonlyArray2<f32>>,
     aspect_scheme: Option<PyReadonlyArray2<f32>>,
 ) -> PyResult<PyObject> {
     let dsm_view = dsm.as_array();
-    let veg_canopy_dsm_view = veg_canopy_dsm.as_array();
-    let veg_trunk_dsm_view = veg_trunk_dsm.as_array();
-    let bush_view = bush.as_array();
     let shape = dsm_view.shape();
 
-    let core_shapes = [
-        veg_canopy_dsm_view.shape(),
-        veg_trunk_dsm_view.shape(),
-        bush_view.shape(),
+    // --- Vegetation Input Validation ---
+    let veg_inputs_provided = [
+        veg_canopy_dsm.is_some(),
+        veg_trunk_dsm.is_some(),
+        bush.is_some(),
     ];
-    if core_shapes.iter().any(|&s| s != shape) {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "Input arrays (dsm, veg*, bush) must have the same shape.",
-        ));
-    }
+    let num_veg_inputs = veg_inputs_provided.iter().filter(|&&x| x).count();
 
+    let (veg_canopy_dsm_view_opt, veg_trunk_dsm_view_opt, bush_view_opt) = if num_veg_inputs == 3 {
+        let veg_canopy_view = veg_canopy_dsm.as_ref().unwrap().as_array();
+        let veg_trunk_view = veg_trunk_dsm.as_ref().unwrap().as_array();
+        let bush_view = bush.as_ref().unwrap().as_array();
+        if veg_canopy_view.shape() != shape {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "veg_canopy_dsm must have the same shape as dsm.",
+            ));
+        }
+        if veg_trunk_view.shape() != shape {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "veg_trunk_dsm must have the same shape as dsm.",
+            ));
+        }
+        if bush_view.shape() != shape {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "bush must have the same shape as dsm.",
+            ));
+        }
+        (Some(veg_canopy_view), Some(veg_trunk_view), Some(bush_view))
+    } else if num_veg_inputs == 0 {
+        (None, None, None)
+    } else {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+                "Either all vegetation inputs (veg_canopy_dsm, veg_trunk_dsm, bush) must be provided, or none of them.",
+            ));
+    };
+
+    // --- Wall Input Validation ---
     let walls_view_opt = walls.as_ref().map(|w| w.as_array());
     let aspect_view_opt = aspect.as_ref().map(|a| a.as_array());
     if walls_view_opt.is_some() != aspect_view_opt.is_some() {
@@ -529,14 +573,14 @@ pub fn calculate_shadows_wall_ht_25(
     }
 
     let rust_result = calculate_shadows_rust(
-        dsm_view,
-        veg_canopy_dsm_view,
-        veg_trunk_dsm_view,
         azimuth_deg,
         altitude_deg,
         scale,
         max_height_diff,
-        bush_view,
+        dsm_view,
+        veg_canopy_dsm_view_opt,
+        veg_trunk_dsm_view_opt,
+        bush_view_opt,
         walls_view_opt,
         aspect_view_opt,
         walls_scheme_view_opt,

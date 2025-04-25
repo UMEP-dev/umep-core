@@ -130,13 +130,13 @@ def dailyshading(
         if alt[i] > 0:
             if wallshadow == 1:  # Include wall shadows (Issue #121)
                 result = shadowing.calculate_shadows_wall_ht_25(
-                    dsm,
-                    vegdem,
-                    vegdem2,
                     azi[i],
                     alt[i],
                     scale,
                     amaxvalue,
+                    dsm,
+                    vegdem,
+                    vegdem2,
                     bush,
                     wheight if wallshadow == 1 else np.zeros((dsm_height, dsm_width)),
                     waspect * np.pi / 180.0 if wallshadow == 1 else np.zeros((dsm_height, dsm_width)),
@@ -154,13 +154,13 @@ def dailyshading(
                     common.save_raster(filenamewallsh, result.wall_sh, dsm_transf, dsm_crs)
             else:
                 result = shadowing.calculate_shadows_wall_ht_25(
-                    dsm,
-                    vegdem,
-                    vegdem2,
                     azi[i],
                     alt[i],
                     scale,
                     amaxvalue,
+                    dsm,
+                    vegdem,
+                    vegdem2,
                     bush,
                     np.zeros((dsm_height, dsm_width)),
                     np.zeros((dsm_height, dsm_width)),

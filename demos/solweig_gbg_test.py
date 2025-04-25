@@ -48,4 +48,6 @@ if not Path.exists(working_path / "svf"):
     )
 
 # %%
-sr.solweig_run("umep" + "/configsolweig.ini", feedback=None)
+sr.solweig_run("pysrc/umep/configsolweig.ini", feedback=None)
+
+# %%

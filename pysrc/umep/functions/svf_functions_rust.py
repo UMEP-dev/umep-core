@@ -107,13 +107,13 @@ def svfForProcessing153_rust_shdw(dsm, vegdem, vegdem2, scale, usevegdem):
             if usevegdem == 1:
                 # numba doesn't seem to offer notable gains in this instance
                 result = shadowing.calculate_shadows_wall_ht_25(
-                    dsm,
-                    vegdem,
-                    vegdem2,
                     azimuth,
                     altitude,
                     scale,
                     amaxvalue,
+                    dsm,
+                    vegdem,
+                    vegdem2,
                     bush,
                     None,
                     None,

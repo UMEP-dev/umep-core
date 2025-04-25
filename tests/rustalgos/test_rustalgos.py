@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from memory_profiler import memory_usage
 from umep import common
+from umep.functions.SOLWEIGpython import Solweig_run as sr
+from umep.functions.SOLWEIGpython import Solweig_run_rust as srr
 from umep.functions.svf_functions import svfForProcessing153
 from umep.functions.svf_functions_rust import svfForProcessing153_rust_shdw
 from umep.rustalgos import shadowing, skyview
@@ -18,12 +20,32 @@ def test_shadowing():
     # --- Timing only (no memory profiling) ---
     def run_py():
         shadowingfunction_wallheight_23(
-            dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0
+            dsm,
+            vegdsm,
+            vegdsm2,
+            azi,
+            alt,
+            scale,
+            amaxvalue,
+            bush,
+            wall_hts,
+            wall_asp * np.pi / 180.0,
         )
 
     def run_rust():
         shadowing.calculate_shadows_wall_ht_25(
-            dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0, None, None
+            azi,
+            alt,
+            scale,
+            amaxvalue,
+            dsm,
+            vegdsm,
+            vegdsm2,
+            bush,
+            wall_hts,
+            wall_asp * np.pi / 180.0,
+            None,
+            None,
         )
 
     py_timings = timeit.repeat(run_py, number=1, repeat=repeats)
@@ -60,7 +82,18 @@ def test_shadowing():
     }
     # Run Rust version
     result_rust = shadowing.calculate_shadows_wall_ht_25(
-        dsm, vegdsm, vegdsm2, azi, alt, scale, amaxvalue, bush, wall_hts, wall_asp * np.pi / 180.0, None, None
+        azi,
+        alt,
+        scale,
+        amaxvalue,
+        dsm,
+        vegdsm,
+        vegdsm2,
+        bush,
+        wall_hts,
+        wall_asp * np.pi / 180.0,
+        None,
+        None,
     )
     key_map = {
         "veg_sh": "veg_sh",
@@ -180,6 +213,33 @@ def test_svf():
     )
 
 
+def test_solweig():
+    repeats = 1
+
+    # --- Timing only (no memory profiling) ---
+    def run_py():
+        sr.solweig_run("pysrc/umep/configsolweig.ini", feedback=None)
+
+    def run_hybrid():
+        srr.solweig_run("pysrc/umep/configsolweig.ini", feedback=None)
+
+    py_timings = timeit.repeat(run_py, number=1, repeat=repeats)
+    print_timing_stats("solweig_run", py_timings)
+
+    hybrid_timings = timeit.repeat(run_hybrid, number=1, repeat=repeats)
+    print_timing_stats("solweig_run w rust shadows", hybrid_timings)
+
+    # Print relative speed as percentage
+    relative_speed(py_timings, hybrid_timings)
+
+    # --- Memory profiling only (no timing) ---
+    py_memory = memory_usage(run_py, max_usage=True)
+    print(f"solweig_run: max memory usage: {py_memory:.2f} MiB")
+
+    rust_memory = memory_usage(run_hybrid, max_usage=True)
+    print(f"solweig_run w rust shadows: max memory usage: {rust_memory:.2f} MiB")
+
+
 def make_test_arrays(
     resolution,
     dsm_path="demos/data/athens/DSM_{res}m.tif",
@@ -220,7 +280,7 @@ def pct(a, b, atol=0.001):
 
 
 def compare_results(result_py, result_rust, key_map, atol=0.0001):
-    print("\n--- SVF Comparison ---")
+    print("\n--- Comparison ---")
     for py_key, rust_attr in key_map.items():
         py_val = result_py.get(py_key)
         rust_val = getattr(result_rust, rust_attr, None)

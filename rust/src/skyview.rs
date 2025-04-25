@@ -358,18 +358,25 @@ pub fn calculate_svf(
         .enumerate()
         .map(|(patch_idx, patch)| {
             let dsm_view = dsm_f32.view();
-            let vegdem_adj_view = vegdem_f32.view();
-            let vegdem2_adj_view = vegdem2_f32.view();
-            let bush_view = bush_f32.view();
+            // Only pass vegetation views if usevegdem is true, otherwise pass None
+            let (vegdem_view, vegdem2_view, bush_view) = if usevegdem {
+                (
+                    Some(vegdem_f32.view()),
+                    Some(vegdem2_f32.view()),
+                    Some(bush_f32.view()),
+                )
+            } else {
+                (None, None, None)
+            };
 
             let shadow_result: ShadowingResultRust = calculate_shadows_rust(
-                dsm_view,
-                vegdem_adj_view,
-                vegdem2_adj_view,
                 patch.azimuth,
                 patch.altitude,
                 scale,
                 max_height_diff,
+                dsm_view,
+                vegdem_view,
+                vegdem2_view,
                 bush_view,
                 None,
                 None,
