@@ -3,15 +3,10 @@ from builtins import range
 
 import numpy as np
 from tqdm import tqdm
-from umep import common
-from umep.util import shadowingfunctions as shadow
-from umep.util.SEBESOLWEIGCommonFiles import sun_position as sp
-from umep.util.SEBESOLWEIGCommonFiles.shadowingfunction_wallheight_13 import (
-    shadowingfunction_wallheight_13,
-)
-from umep.util.SEBESOLWEIGCommonFiles.shadowingfunction_wallheight_23 import (
-    shadowingfunction_wallheight_23,
-)
+
+from .. import common
+from ..rustalgos import shadowing
+from ..util.SEBESOLWEIGCommonFiles import sun_position as sp
 
 
 def dailyshading(
@@ -60,6 +55,12 @@ def dailyshading(
 
         # Bush separation
         bush = np.logical_not(vegdem2 * vegdem) * vegdem
+    else:
+        psi = 1.0
+        vegdem = np.zeros_like(dsm)
+        vegdem2 = np.zeros_like(dsm)
+        amaxvalue = dsm.max() - dsm.min()
+        bush = np.zeros_like(dsm)
 
     shtot = np.zeros((dsm_height, dsm_width))
 
@@ -128,57 +129,45 @@ def dailyshading(
         timestr = time_vector.strftime("%Y%m%d_%H%M")
         if alt[i] > 0:
             if wallshadow == 1:  # Include wall shadows (Issue #121)
-                if usevegdem == 1:
-                    vegsh, sh, _, wallsh, _, wallshve, _, _ = shadowingfunction_wallheight_23(
-                        dsm,
-                        vegdem,
-                        vegdem2,
-                        azi[i],
-                        alt[i],
-                        scale,
-                        amaxvalue,
-                        bush,
-                        walls,
-                        dirwalls * np.pi / 180.0,
-                    )
-                    # create output folders
-                    sh = sh - (1 - vegsh) * (1 - psi)
-                    if onetime == 0:
-                        filenamewallshve = folder + "/facade_shdw_veg/facade_shdw_veg_" + timestr + "_LST.tif"
-                        common.save_raster(filenamewallshve, wallshve, dsm_transf, dsm_crs)
-                else:
-                    sh, wallsh, _, _, _ = shadowingfunction_wallheight_13(
-                        dsm, azi[i], alt[i], scale, walls, dirwalls * np.pi / 180.0
-                    )
-                    # shtot = shtot + sh
-
+                result = shadowing.calculate_shadows_wall_ht_25(
+                    dsm,
+                    vegdem,
+                    vegdem2,
+                    azi[i],
+                    alt[i],
+                    scale,
+                    amaxvalue,
+                    bush,
+                    wheight if wallshadow == 1 else np.zeros((dsm_height, dsm_width)),
+                    waspect * np.pi / 180.0 if wallshadow == 1 else np.zeros((dsm_height, dsm_width)),
+                    None,
+                    None,
+                )
+                sh = result.bldg_sh - (1 - result.veg_sh) * (1 - psi)
+                if onetime == 0:
+                    filenamewallshve = folder + "/facade_shdw_veg/facade_shdw_veg_" + timestr + "_LST.tif"
+                    common.save_raster(filenamewallshve, result.wall_sh_veg, dsm_transf, dsm_crs)
                 if onetime == 0:
                     filename = folder + "/shadow_ground/shadow_ground_" + timestr + "_LST.tif"
                     common.save_raster(filename, sh, dsm_transf, dsm_crs)
                     filenamewallsh = folder + "/facade_shdw_bldgs/facade_shdw_bldgs_" + timestr + "_LST.tif"
-                    common.save_raster(filenamewallsh, wallsh, dsm_transf, dsm_crs)
-
+                    common.save_raster(filenamewallsh, result.wall_sh, dsm_transf, dsm_crs)
             else:
-                if usevegdem == 0:
-                    sh = shadow.shadowingfunctionglobalradiation(dsm, azi[i], alt[i], scale, 0)
-                    # shtot = shtot + sh
-                else:
-                    shadowresult = shadow.shadowingfunction_20(
-                        dsm,
-                        vegdem,
-                        vegdem2,
-                        azi[i],
-                        alt[i],
-                        scale,
-                        amaxvalue,
-                        bush,
-                        0,
-                    )
-                    vegsh = shadowresult["vegsh"]
-                    sh = shadowresult["sh"]
-                    sh = sh - (1 - vegsh) * (1 - psi)
-                    # vegshtot = vegshtot + sh
-
+                result = shadowing.calculate_shadows_wall_ht_25(
+                    dsm,
+                    vegdem,
+                    vegdem2,
+                    azi[i],
+                    alt[i],
+                    scale,
+                    amaxvalue,
+                    bush,
+                    np.zeros((dsm_height, dsm_width)),
+                    np.zeros((dsm_height, dsm_width)),
+                    None,
+                    None,
+                )
+                sh = result.bldg_sh - (1 - result.veg_sh) * (1 - psi)
                 if onetime == 0:
                     filename = folder + "/Shadow_" + timestr + "_LST.tif"
                     common.save_raster(filename, sh, dsm_transf, dsm_crs)
@@ -191,10 +180,9 @@ def dailyshading(
     if wallshadow == 1:
         if onetime == 1:
             filenamewallsh = folder + "/facade_shdw_bldgs/facade_shdw_bldgs_" + timestr + "_LST.tif"
-            common.save_raster(filenamewallsh, wallsh, dsm_transf, dsm_crs)
-            if usevegdem == 1:
-                filenamewallshve = folder + "/facade_shdw_veg/facade_shdw_veg_" + timestr + "_LST.tif"
-                common.save_raster(filenamewallshve, wallshve, dsm_transf, dsm_crs)
+            common.save_raster(filenamewallsh, result.wall_sh, dsm_transf, dsm_crs)
+            filenamewallshve = folder + "/facade_shdw_veg/facade_shdw_veg_" + timestr + "_LST.tif"
+            common.save_raster(filenamewallshve, result.wall_sh_veg, dsm_transf, dsm_crs)
 
     shadowresult = {"shfinal": shfinal, "time_vector": time_vector}
 

@@ -3,6 +3,8 @@ from tqdm import tqdm
 from umep.util import shadowingfunctions as shadow
 from umep.util.SEBESOLWEIGCommonFiles.create_patches import create_patches
 
+from ..rustalgos import shadowing
+
 
 def annulus_weight(altitude, aziinterval):
     n = 90.0
@@ -14,7 +16,7 @@ def annulus_weight(altitude, aziinterval):
     return weight
 
 
-def svfForProcessing153(dsm, vegdem, vegdem2, scale, usevegdem):
+def svfForProcessing153_rust_shdw(dsm, vegdem, vegdem2, scale, usevegdem):
     # memory
     dsm = dsm.astype(np.float32)
     vegdem = vegdem.astype(np.float32)
@@ -104,7 +106,7 @@ def svfForProcessing153(dsm, vegdem, vegdem2, scale, usevegdem):
             # Casting shadow
             if usevegdem == 1:
                 # numba doesn't seem to offer notable gains in this instance
-                shadowresult = shadow.shadowingfunction_20(
+                result = shadowing.calculate_shadows_wall_ht_25(
                     dsm,
                     vegdem,
                     vegdem2,
@@ -113,11 +115,14 @@ def svfForProcessing153(dsm, vegdem, vegdem2, scale, usevegdem):
                     scale,
                     amaxvalue,
                     bush,
-                    1,  # for svf
+                    None,
+                    None,
+                    None,
+                    None,
                 )
-                vegsh = shadowresult["vegsh"]
-                vbshvegsh = shadowresult["vbshvegsh"]
-                sh = shadowresult["sh"]
+                vegsh = result.veg_sh
+                vbshvegsh = result.veg_blocks_bldg_sh
+                sh = result.bldg_sh
                 vegshmat[:, :, index] = vegsh
                 vbshvegshmat[:, :, index] = vbshvegsh
             else:

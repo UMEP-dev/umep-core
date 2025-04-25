@@ -5,8 +5,8 @@ import geopandas as gpd
 import pandas as pd
 from umep import (
     common,
-    shadow_generator_algorithm,
-    skyviewfactor_algorithm,
+    shadow_generator_algorithm_rust,
+    skyviewfactor_algorithm_rust,
     solweig_algorithm,
     wall_heightaspect_algorithm,
 )
@@ -91,7 +91,7 @@ if not Path.exists(working_path / f"walls_{pixel_res}m"):
 for shadow_date_Ymd in ["2024-03-21"]:
     shadow_dir_name = f"shadow_{shadow_date_Ymd}_{pixel_res}m"
     if not Path.exists(working_path / shadow_dir_name):
-        shadow_generator_algorithm.generate_shadows(
+        shadow_generator_algorithm_rust.generate_shadows(
             dsm_path=working_path_str + f"/DSM_{pixel_res}m.tif",
             # target date to caculate shadows for
             shadow_date_Ymd=shadow_date_Ymd,  # %Y-%m-%d"
@@ -109,7 +109,7 @@ for shadow_date_Ymd in ["2024-03-21"]:
 # %%
 # skyview factor for SOLWEIG
 if not Path.exists(working_path / f"svf_{pixel_res}m"):
-    skyviewfactor_algorithm.generate_svf(
+    skyviewfactor_algorithm_rust.generate_svf(
         dsm_path=working_path_str + f"/DSM_{pixel_res}m.tif",
         bbox=bbox,
         out_dir=working_path_str + f"/svf_{pixel_res}m",

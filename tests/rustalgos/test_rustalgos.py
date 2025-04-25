@@ -5,6 +5,7 @@ import numpy as np
 from memory_profiler import memory_usage
 from umep import common
 from umep.functions.svf_functions import svfForProcessing153
+from umep.functions.svf_functions_rust import svfForProcessing153_rust_shdw
 from umep.rustalgos import shadowing, skyview
 from umep.util.SEBESOLWEIGCommonFiles.shadowingfunction_wallheight_23 import shadowingfunction_wallheight_23
 
@@ -93,27 +94,43 @@ def test_svf():
     def run_py():
         svfForProcessing153(dsm, vegdsm, vegdsm2, scale, 1)
 
+    def run_hybrid():
+        svfForProcessing153_rust_shdw(dsm, vegdsm, vegdsm2, scale, 1)
+
     def run_rust():
         skyview.calculate_svf(dsm, vegdsm, vegdsm2, scale, True, 2)
 
     times_py = timeit.repeat(run_py, number=1, repeat=repeats)
-    print_timing_stats("svfForProcessing153", times_py)
+    print_timing_stats("svfForProcessing153 - (shadowingfunction_20)", times_py)
+
+    times_hybrid = timeit.repeat(run_hybrid, number=1, repeat=repeats)
+    print_timing_stats("svfForProcessing153 - hybrid w. rust shadows", times_hybrid)
 
     times_rust = timeit.repeat(run_rust, number=1, repeat=repeats)
     print_timing_stats("skyview.calculate_svf", times_rust)
 
     # Print relative speed as percentage
+    print("\n--- Relative Speed shadowingfunction_20 vs hybrid w. rust shadows ---")
+    relative_speed(times_py, times_hybrid)
+
+    # Print relative speed as percentage
+    print("\n--- Relative Speed shadowingfunction_20 - full rust SVF ---")
     relative_speed(times_py, times_rust)
 
     # --- Memory profiling only (no timing) ---
     py_memory = memory_usage(run_py, max_usage=True)
     print(f"svfForProcessing153: max memory usage: {py_memory:.2f} MiB")
 
+    hybrid_memory = memory_usage(run_hybrid, max_usage=True)
+    print(f"svfForProcessing153 - hybrid w. rust shadows: max memory usage: {hybrid_memory:.2f} MiB")
+
     rust_memory = memory_usage(run_rust, max_usage=True)
     print(f"skyview.calculate_svf: max memory usage: {rust_memory:.2f} MiB")
 
+    # For testing outputs use hybrid version - shadowing is tested separately in above test
+    # (otherwise testing against outputs from underlying shadowingfunction_20 gives different results)
     # Run Python version
-    result_py = svfForProcessing153(dsm, vegdsm, vegdsm2, scale, 1)
+    result_py = svfForProcessing153_rust_shdw(dsm, vegdsm, vegdsm2, scale, 1)
     # Run Rust version
     result_rust = skyview.calculate_svf(dsm, vegdsm, vegdsm2, scale, True, 2)
     # Compare results
