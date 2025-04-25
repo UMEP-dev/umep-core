@@ -218,10 +218,10 @@ def test_solweig():
 
     # --- Timing only (no memory profiling) ---
     def run_py():
-        sr.solweig_run("pysrc/umep/configsolweig.ini", feedback=None)
+        sr.solweig_run("tests/rustalgos/test_config_solweig.ini", feedback=None)
 
     def run_hybrid():
-        srr.solweig_run("pysrc/umep/configsolweig.ini", feedback=None)
+        srr.solweig_run("tests/rustalgos/test_config_solweig.ini", feedback=None)
 
     py_timings = timeit.repeat(run_py, number=1, repeat=repeats)
     print_timing_stats("solweig_run", py_timings)
