@@ -81,7 +81,7 @@ def filter1Goodwin_as_aspect_v3(walls, scale, a):
     y = np.zeros((row, col))  # final direction
     z = np.zeros((row, col))  # temporary direction
     x = np.zeros((row, col))  # building side
-    walls[walls >= 1] = 1
+    walls[walls > 0.5] = 1
 
     for h in tqdm(range(0, 180)):  # =0:1:180 #%increased resolution to 1 deg 20140911
         filtmatrix1temp = sc.rotate(filtmatrix, h, order=1, reshape=False, mode="nearest")  # bilinear

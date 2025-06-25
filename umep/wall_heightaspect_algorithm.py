@@ -55,7 +55,7 @@ def generate_wall_hts(
     dsm_path: str,
     bbox: list[int, int, int, int],
     out_dir: str,
-    wall_limit: float = 0,
+    wall_limit: float = 1,
 ):
     """ """
     dsm_rast, dsm_transf, dsm_crs = common.load_raster(dsm_path, bbox)
