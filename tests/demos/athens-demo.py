@@ -17,7 +17,7 @@ reload(solweig_algorithm)
 
 #
 bbox = [476070, 4203550, 477110, 4204330]
-working_folder = "temp/tests"
+working_folder = "temp/tests/athens"
 pixel_resolution = 1  # metres
 working_crs = 2100
 

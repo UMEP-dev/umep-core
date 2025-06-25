@@ -81,19 +81,15 @@ def filter1Goodwin_as_aspect_v3(walls, scale, a):
     y = np.zeros((row, col))  # final direction
     z = np.zeros((row, col))  # temporary direction
     x = np.zeros((row, col))  # building side
-    walls[walls > 0] = 1
+    walls[walls >= 1] = 1
 
     for h in tqdm(range(0, 180)):  # =0:1:180 #%increased resolution to 1 deg 20140911
-        filtmatrix1temp = sc.rotate(
-            filtmatrix, h, order=1, reshape=False, mode="nearest"
-        )  # bilinear
+        filtmatrix1temp = sc.rotate(filtmatrix, h, order=1, reshape=False, mode="nearest")  # bilinear
         filtmatrix1 = np.round(filtmatrix1temp)
         # filtmatrix1temp = sc.imrotate(filtmatrix, h, 'bilinear')
         # filtmatrix1 = np.round(filtmatrix1temp / 255.)
         # filtmatrixbuildtemp = sc.imrotate(buildfilt, h, 'nearest')
-        filtmatrixbuildtemp = sc.rotate(
-            buildfilt, h, order=0, reshape=False, mode="nearest"
-        )  # Nearest neighbor
+        filtmatrixbuildtemp = sc.rotate(buildfilt, h, order=0, reshape=False, mode="nearest")  # Nearest neighbor
         # filtmatrixbuild = np.round(filtmatrixbuildtemp / 127.)
         filtmatrixbuild = np.round(filtmatrixbuildtemp)
         index = 270 - h
@@ -110,9 +106,7 @@ def filter1Goodwin_as_aspect_v3(walls, scale, a):
             filtmatrix1[0, n] = 1
             filtmatrix1[n, 0] = 1
 
-        for i in range(
-            int(filthalveceil) - 1, row - int(filthalveceil) - 1
-        ):  # i=filthalveceil:sizey-filthalveceil
+        for i in range(int(filthalveceil) - 1, row - int(filthalveceil) - 1):  # i=filthalveceil:sizey-filthalveceil
             for j in range(
                 int(filthalveceil) - 1, col - int(filthalveceil) - 1
             ):  # (j=filthalveceil:sizex-filthalveceil
@@ -130,9 +124,7 @@ def filter1Goodwin_as_aspect_v3(walls, scale, a):
                     ]
                     if z[i, j] < wallscut.sum():  # sum(sum(wallscut))
                         z[i, j] = wallscut.sum()  # sum(sum(wallscut));
-                        if np.sum(dsmcut[filtmatrixbuild == 1]) > np.sum(
-                            dsmcut[filtmatrixbuild == 2]
-                        ):
+                        if np.sum(dsmcut[filtmatrixbuild == 1]) > np.sum(dsmcut[filtmatrixbuild == 2]):
                             x[i, j] = 1
                         else:
                             x[i, j] = 2
