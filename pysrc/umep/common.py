@@ -56,7 +56,7 @@ def save_raster(out_path, data, transform, crs):
 
 def load_raster(
     path: str,
-    bbox: list[int] = None,
+    bbox: list[int] | None = None,
     band: int = 0,
 ):
     # Open the raster file with rasterio

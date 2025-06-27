@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 """
 /***************************************************************************
  ProcessingUMEP
@@ -57,7 +55,7 @@ def generate_wall_hts(
     dsm_path: str,
     bbox: list[int, int, int, int],
     out_dir: str,
-    wall_limit: float = 0,
+    wall_limit: float = 1,
 ):
     """ """
     dsm_rast, dsm_transf, dsm_crs = common.load_raster(dsm_path, bbox)
@@ -71,6 +69,4 @@ def generate_wall_hts(
     common.save_raster(out_path_str + "/" + "wall_hts.tif", walls, dsm_transf, dsm_crs)
 
     dirwalls = wa.filter1Goodwin_as_aspect_v3(walls, dsm_scale, dsm_rast)
-    common.save_raster(
-        out_path_str + "/" + "wall_aspects.tif", dirwalls, dsm_transf, dsm_crs
-    )
+    common.save_raster(out_path_str + "/" + "wall_aspects.tif", dirwalls, dsm_transf, dsm_crs)
