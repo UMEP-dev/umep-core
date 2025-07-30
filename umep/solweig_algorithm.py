@@ -250,7 +250,7 @@ def generate_solweig(
             "Wind": filtered_df["wind_speed"],
             "RH": filtered_df["relative_humidity"],
             "Tair": filtered_df["temp_air"],
-            "pres": filtered_df["atmospheric_pressure"],  # Pascal
+            "pres": filtered_df["atmospheric_pressure"].astype(float),  # Pascal, ensure float
             "rain": -999,
             "Kdown": filtered_df["ghi"],
             "snow": filtered_df["snow_depth"],
@@ -288,7 +288,7 @@ def generate_solweig(
     radG = umep_df.loc[:, "Kdown"].values
     radD = umep_df.loc[:, "Kdiff"].values
     radI = umep_df.loc[:, "Kdir"].values
-    umep_df.loc[:, "pres"] /= 100  # convert from Pa to hPa
+    umep_df.loc[:, "pres"] = umep_df.loc[:, "pres"] / 100.0  # convert from Pa to hPa
     P = umep_df.loc[:, "pres"].values
     Ws = umep_df.loc[:, "Wind"].values
 
@@ -419,6 +419,9 @@ def generate_solweig(
 
     tmrtplot = np.zeros((dsm_height, dsm_width))
     TgOut1 = np.zeros((dsm_height, dsm_width))
+
+    if pois_gdf is not None:
+        poi_results = []
 
     # Initiate array for I0 values
     if np.unique(DOY).shape[0] > 1:
@@ -610,39 +613,43 @@ def generate_solweig(
                 row_idx, col_idx = rowcol(dsm_transf, centroid.x, centroid.y)
                 row_idx = int(row_idx)
                 col_idx = int(col_idx)
-                pois_gdf.at[idx, "yyyy"] = YYYY[0][i]
-                pois_gdf.at[idx, "id"] = jday[0][i]
-                pois_gdf.at[idx, "it"] = hours[i]
-                pois_gdf.at[idx, "imin"] = minu[i]
-                pois_gdf.at[idx, "dectime"] = dectime[i]
-                pois_gdf.at[idx, "altitude"] = altitude[0][i]
-                pois_gdf.at[idx, "azimuth"] = azimuth[0][i]
-                pois_gdf.at[idx, "kdir"] = radIout
-                pois_gdf.at[idx, "kdiff"] = radDout
-                pois_gdf.at[idx, "kglobal"] = radG[i]
-                pois_gdf.at[idx, "kdown"] = Kdown[row_idx, col_idx]
-                pois_gdf.at[idx, "kup"] = Kup[row_idx, col_idx]
-                pois_gdf.at[idx, "keast"] = Keast[row_idx, col_idx]
-                pois_gdf.at[idx, "ksouth"] = Ksouth[row_idx, col_idx]
-                pois_gdf.at[idx, "kwest"] = Kwest[row_idx, col_idx]
-                pois_gdf.at[idx, "knorth"] = Knorth[row_idx, col_idx]
-                pois_gdf.at[idx, "ldown"] = Ldown[row_idx, col_idx]
-                pois_gdf.at[idx, "lup"] = Lup[row_idx, col_idx]
-                pois_gdf.at[idx, "least"] = Least[row_idx, col_idx]
-                pois_gdf.at[idx, "lsouth"] = Lsouth[row_idx, col_idx]
-                pois_gdf.at[idx, "lwest"] = Lwest[row_idx, col_idx]
-                pois_gdf.at[idx, "lnorth"] = Lnorth[row_idx, col_idx]
-                pois_gdf.at[idx, "Ta"] = Ta[i]
-                pois_gdf.at[idx, "Tg"] = TgOut[row_idx, col_idx]
-                pois_gdf.at[idx, "RH"] = RH[i]
-                pois_gdf.at[idx, "Esky"] = esky
-                pois_gdf.at[idx, "Tmrt"] = Tmrt[row_idx, col_idx]
-                pois_gdf.at[idx, "I0"] = I0
-                pois_gdf.at[idx, "CI"] = CI
-                pois_gdf.at[idx, "Shadow"] = shadow[row_idx, col_idx]
-                pois_gdf.at[idx, "SVF_b"] = svf[row_idx, col_idx]
-                pois_gdf.at[idx, "SVF_bv"] = svfbuveg[row_idx, col_idx]
-                pois_gdf.at[idx, "KsideI"] = KsideI[row_idx, col_idx]
+                result_row = {
+                    "geometry": row["geometry"],
+                    "poi_idx": idx,
+                    "yyyy": YYYY[0, i],
+                    "id": jday[0, i],
+                    "it": hours[i],
+                    "imin": minu[i],
+                    "dectime": dectime[i],
+                    "altitude": altitude[0, i],
+                    "azimuth": azimuth[0, i],
+                    "kdir": radIout,
+                    "kdiff": radDout,
+                    "kglobal": radG[i],
+                    "kdown": Kdown[row_idx, col_idx],
+                    "kup": Kup[row_idx, col_idx],
+                    "keast": Keast[row_idx, col_idx],
+                    "ksouth": Ksouth[row_idx, col_idx],
+                    "kwest": Kwest[row_idx, col_idx],
+                    "knorth": Knorth[row_idx, col_idx],
+                    "ldown": Ldown[row_idx, col_idx],
+                    "lup": Lup[row_idx, col_idx],
+                    "least": Least[row_idx, col_idx],
+                    "lsouth": Lsouth[row_idx, col_idx],
+                    "lwest": Lwest[row_idx, col_idx],
+                    "lnorth": Lnorth[row_idx, col_idx],
+                    "Ta": Ta[i],
+                    "Tg": TgOut[row_idx, col_idx],
+                    "RH": RH[i],
+                    "Esky": esky,
+                    "Tmrt": Tmrt[row_idx, col_idx],
+                    "I0": I0,
+                    "CI": CI,
+                    "Shadow": shadow[row_idx, col_idx],
+                    "SVF_b": svf[row_idx, col_idx],
+                    "SVF_bv": svfbuveg[row_idx, col_idx],
+                    "KsideI": KsideI[row_idx, col_idx],
+                }
                 # Recalculating wind speed based on powerlaw
                 WsPET = (1.1 / wind_sensor_ht) ** 0.2 * Ws[i]
                 WsUTCI = (10.0 / wind_sensor_ht) ** 0.2 * Ws[i]
@@ -658,16 +665,16 @@ def generate_solweig(
                     clothing,
                     sex,
                 )
-                pois_gdf.at[idx, "PET"] = resultPET
+                result_row["PET"] = resultPET
                 resultUTCI = utci.utci_calculator(Ta[i], RH[i], Tmrt[row_idx, col_idx], WsUTCI)
-                pois_gdf.at[idx, "UTCI"] = resultUTCI
-                pois_gdf.at[idx, "CI_Tg"] = CI_Tg
-                pois_gdf.at[idx, "CI_TgG"] = CI_TgG
-                pois_gdf.at[idx, "KsideD"] = KsideD[row_idx, col_idx]
-                pois_gdf.at[idx, "Lside"] = Lside[row_idx, col_idx]
-                pois_gdf.at[idx, "diffDown"] = dRad[row_idx, col_idx]
-                pois_gdf.at[idx, "Kside"] = Kside[row_idx, col_idx]
-            pois_gdf.to_file(out_path_str + "/POI.gpkg", layer=time_code, driver="GPKG")
+                result_row["UTCI"] = resultUTCI
+                result_row["CI_Tg"] = CI_Tg
+                result_row["CI_TgG"] = CI_TgG
+                result_row["KsideD"] = KsideD[row_idx, col_idx]
+                result_row["Lside"] = Lside[row_idx, col_idx]
+                result_row["diffDown"] = dRad[row_idx, col_idx]
+                result_row["Kside"] = Kside[row_idx, col_idx]
+                poi_results.append(result_row)
 
         common.save_raster(
             out_path_str + "/Tmrt/Tmrt_" + time_code + ".tif",
@@ -692,6 +699,24 @@ def generate_solweig(
             dsm_transf,
             dsm_crs,
         )
+
+    # After the main loop, write all POI results to a single GPKG file with multi-index
+    if pois_gdf is not None and len(poi_results) > 0:
+        poi_df = gpd.GeoDataFrame(poi_results, geometry="geometry", crs=pois_gdf.crs)
+        # Create a datetime column for multi-index
+        poi_df["snapshot"] = pd.to_datetime(
+            poi_df["yyyy"].astype(int).astype(str)
+            + "-"
+            + poi_df["id"].astype(int).astype(str).str.zfill(3)
+            + " "
+            + poi_df["it"].astype(int).astype(str).str.zfill(2)
+            + ":"
+            + poi_df["imin"].astype(int).astype(str).str.zfill(2),
+            format="%Y-%j %H:%M",
+        )
+
+        # GPD doesn't handle multi-index
+        poi_df.to_file(out_path_str + "/POI.gpkg", driver="GPKG")
 
     # Output I0 vs. Kglobal plot
     radG_for_plot = radG[first_unique_day[0] == DOY]
