@@ -191,7 +191,7 @@ def solweig_run(configPath, feedback):
         )
         poi_field = configDict["poi_field"]
         if standAlone == 0:
-            poi_field = configDict["woi_field"]
+            poi_field = configDict["poi_field"]
             poisxy, poiname = pointOfInterest(configDict["poi_file"], poi_field, scale, gdal_dsm)
         else:
             pois_gdf = gpd.read_file(configDict["poi_file"])
