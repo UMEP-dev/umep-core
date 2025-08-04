@@ -59,3 +59,6 @@ http://gis.cityofathens.gr/layers/athens_geonode_data:geonode:c40solarmap
 
 Standard dataset used in tutorials (https://umep-docs.readthedocs.io/en/latest/Tutorials.html)
 
+### TODOs
+
+- [ ] Is first idx divisor in sun on wall a bug?

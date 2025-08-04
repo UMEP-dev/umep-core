@@ -21,7 +21,6 @@ uv.lock
 
 # temp
 temp
-demos/data
 
 # C extensions
 *.so

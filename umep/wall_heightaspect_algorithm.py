@@ -58,8 +58,8 @@ def generate_wall_hts(
     wall_limit: float = 1,
 ):
     """ """
-    dsm_rast, dsm_transf, dsm_crs = common.load_raster(dsm_path, bbox)
-    dsm_scale = 1 / dsm_transf.a
+    dsm_rast, dsm_transf, dsm_crs, _dsm_nd = common.load_raster(dsm_path, bbox)
+    dsm_scale = 1 / dsm_transf[1]
 
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)

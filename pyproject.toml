@@ -1,9 +1,9 @@
 [project]
 name = "umep"
-version = "0.0.1b2"
+version = "0.0.1b30"
 description = "urban multi-scale environmental predictor"
 readme = "README.md"
-requires-python = ">=3.10, <3.14"
+requires-python = ">=3.9, <3.14"
 license = { text = "AGPL-3.0" }
 keywords = [
     "python3",
@@ -26,27 +26,27 @@ keywords = [
 authors = [{ name = "UMEP Developers" }]
 maintainers = [{ name = "UMEP Developers" }]
 classifiers = [
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
+# QGIS deps https://github.com/qgis/QGIS/blob/master/.docker/qgis3-qt5-build-deps.dockerfile
 dependencies = [
     "geopandas>=1.0.1",
     "matplotlib>=3.9.2",
-    "momepy>=0.8.1",
     "numpy<2.1.0",
     "pandas>=2.2.3",
     "pvlib>=0.11.1",
-    "pyepw>=0.1",
-    "pytz>=2024.2",
     "rasterio>=1.4.1",
-    "scipy>=1.14.1",
     "shapely>=2.0.6",
     "tqdm>=4.66.5",
-    "pythermalcomfort>=2.10.0",
-    "pyproj>=3.7.0",
-    "xarray>=2025.3.1",
-    "rioxarray>=0.19.0",
+    "rioxarray>=0.15.0",
+    "xarray>=2024.7.0",
+    "scipy>=1.13.1",
+    "pyproj>=3.6.1",
+    "numba>=0.60.0",
 ]
 
 [build-system]
@@ -54,7 +54,12 @@ requires = ["setuptools>=61.0", "wheel", "setuptools_scm[toml]>=6.2"]
 build-backend = "setuptools.build_meta"
 
 [dependency-groups]
-dev = ["ipykernel>=6.29.5", "pip>=25.0.1", "poethepoet>=0.33.1"]
+dev = [
+    "ipykernel>=6.29.5",
+ "pip>=25.0.1",
+ "poethepoet>=0.33.1",
+ "pytest>=8.4.1",
+]
 
 [project.urls]
 homepage = "https://github.com/UMEP-dev/umep-core"
@@ -97,7 +102,7 @@ docstring-code-format = true
 docstring-code-line-length = "dynamic"
 
 [tool.pyright]
-pythonVersion = "3.11"
+pythonVersion = "3.9"
 include = ["umep"]
 exclude = [
     "**/__pycache__",
@@ -109,7 +114,7 @@ exclude = [
     "dist",
     ".venv",
 ]
-typeCheckingMode = "strict"
+typeCheckingMode = "standard"
 useLibraryCodeForTypes = true
 reportUntypedFunctionDecorator = false
 reportUntypedClassDecorator = false

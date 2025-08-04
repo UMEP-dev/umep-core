@@ -115,7 +115,7 @@ def Perez_v3(zen, azimuth, radD, radI, jday, patchchoice, patch_option):
     Ibn = radI
 
     # Skyclearness
-    PerezClearness = ((Idh+Ibn)/(Idh+1.041*np.power(zen, 3)))/(1+1.041*np.power(zen, 3))
+    PerezClearness = ((Idh + Ibn) / Idh + 1.041 * np.power(zen, 3)) / (1 + 1.041 * np.power(zen, 3))
     # Extra terrestrial radiation
     day_angle = jday*2*np.pi/365
     #I0=1367*(1+0.033*np.cos((2*np.pi*jday)/365))
@@ -144,17 +144,17 @@ def Perez_v3(zen, azimuth, radD, radI, jday, patchchoice, patch_option):
     # sky clearness bins
     if PerezClearness < 1.065:
         intClearness = 0
-    if PerezClearness > 1.065 and PerezClearness < 1.230:
+    elif PerezClearness < 1.230:
         intClearness = 1
-    if PerezClearness > 1.230 and PerezClearness < 1.500:
+    elif PerezClearness < 1.500:
         intClearness = 2
-    if PerezClearness > 1.500 and PerezClearness < 1.950:
+    elif PerezClearness < 1.950:
         intClearness = 3
-    if PerezClearness > 1.950 and PerezClearness < 2.800:
+    elif PerezClearness < 2.800:
         intClearness = 4
-    if PerezClearness > 2.800 and PerezClearness < 4.500:
+    elif PerezClearness < 4.500:
         intClearness = 5
-    if PerezClearness > 4.500 and PerezClearness < 6.200:
+    elif PerezClearness < 6.200:
         intClearness = 6
     if PerezClearness > 6.200:
         intClearness = 7
@@ -200,12 +200,50 @@ def Perez_v3(zen, azimuth, radD, radI, jday, patchchoice, patch_option):
     cosSkySunAngle = np.sin(skyvaultalt) * np.sin(altitude) + \
                      np.cos(altitude) * np.cos(skyvaultalt) * np.cos(np.abs(skyvaultazi-azimuth))
 
-    # Main equation
-    lv = (1 + m_a * np.exp(m_b / np.cos(skyvaultzen))) * ((1 + m_c * np.exp(m_d * np.arccos(cosSkySunAngle)) +
-                                                           m_e * cosSkySunAngle * cosSkySunAngle))
+    # Minimal clipping for stability
+    if np.any(cosSkySunAngle < -1):
+        print(f"Warning: clipping cosSkySunAngle min of {np.min(cosSkySunAngle)} to -1")
+        cosSkySunAngle = np.clip(cosSkySunAngle, -1.0, None)  # Prevent arccos(1) and circumsolar spike
+    if np.any(cosSkySunAngle > 0.9996):
+        print(f"Warning: clipping cosSkySunAngle max of {np.max(cosSkySunAngle)} to 0.9996")
+        cosSkySunAngle = np.clip(cosSkySunAngle, None, 0.9996)
 
-    # Normalisation
-    lv = lv / np.sum(lv)
+    cos_zen = np.cos(skyvaultzen)
+    if np.any(cos_zen < 0.1):
+        print(f"Warning: clipping cos_zen min of {np.min(cos_zen)} to 0.1")
+        cos_zen = np.clip(cos_zen, 0.1, None)
+
+    exp_arg_h = m_b / cos_zen
+    if np.any(exp_arg_h < -25):
+        print(f"Warning: clipping exp_arg_h min of {np.min(exp_arg_h)} to -25")
+        exp_arg_h = np.clip(exp_arg_h, -25, None)
+    if np.any(exp_arg_h > 25):
+        print(f"Warning: clipping exp_arg_h max of {np.max(exp_arg_h)} to 25")
+        exp_arg_h = np.clip(exp_arg_h, None, 25)
+
+    ang = np.arccos(cosSkySunAngle)
+    exp_arg_c = m_d * ang
+    if np.any(exp_arg_c < -25):
+        print(f"Warning: clipping exp_arg_c min of {np.min(exp_arg_c)} to -25")
+        exp_arg_c = np.clip(exp_arg_c, -25, None)
+    if np.any(exp_arg_c > 25):
+        print(f"Warning: clipping exp_arg_c max of {np.max(exp_arg_c)} to 25")
+        exp_arg_c = np.clip(exp_arg_c, None, 25)
+
+    circumsolar = 1 + m_c * np.exp(exp_arg_c) + m_e * cosSkySunAngle * cosSkySunAngle
+    if np.any(circumsolar < 0):
+        print(f"Warning: clipping circumsolar min of {np.min(circumsolar)} to 0")
+        circumsolar = np.maximum(circumsolar, 0.0)
+
+    lv = (1 + m_a * np.exp(exp_arg_h)) * circumsolar
+
+    # Normalisation (with safeguard)
+    lv_sum = np.sum(lv)
+    if lv_sum > 1e-9: # Use a small threshold to avoid division by zero
+        lv = lv / lv_sum
+    else:
+        print("Warning: luminance sum is zero, using fallback normalization.")
+        lv.fill(1.0 / lv.size) # Fallback for zero-luminance sky
 
     # plotting
     # axesm('stereo','Origin',[90 180],'MapLatLimit',[0 90],'Aspect','transverse')
