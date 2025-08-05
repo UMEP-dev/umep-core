@@ -1,46 +1,76 @@
 from typing import Any
 
-import numpy as np
-
 from ...functions.SOLWEIGpython.wallOfInterest import pointOfInterest
-from .solweig_runner import SolweigConfig, SolweigRun, WeatherData
+from .solweig_runner import SolweigRun
+from .solweig_runner_config import SolweigConfig
 
 
 class SolweigRunQgis(SolweigRun):
     """Run SOLWEIG in QGIS environment."""
 
-    def __init__(self, config_path_str: str, feedback: Any):
+    def __init__(self, config_path_str: str, params_json_path: str, feedback: Any):
         """ """
         config = SolweigConfig()
         config.from_file(config_path_str)
-        super().__init__(config, qgis_env=True)
-        self.set_feedback(feedback)
+        super().__init__(config, params_json_path, qgis_env=True)
+        self.progress = feedback
 
-    def load_poi_data(self, trf_arr: list[int]) -> tuple[Any, Any]:
+    def prep_progress(self, num: int) -> None:
+        """Prepare progress for environment."""
+        self.iters_total = num
+        self.iters_count = 0
+
+    def iter_progress(self) -> bool:
+        """Iterate progress."""
+        self.iters_count += 1
+        self.progress.setProgress(int(self.iters_count * (100.0 / self.iters_total)))  # move progressbar forward
+        if self.progress.isCanceled():
+            self.progress.setProgressText("Calculation cancelled")
+            return False
+        return True
+
+    def load_poi_data(self, trf_arr: list[float]) -> tuple[Any, Any]:
         """Load points of interest (POIs) from a file."""
         scale = 1 / trf_arr[1]
-        poi_names, poi_xys = pointOfInterest(self.config.poi_file, self.config.poi_field, scale, trf_arr)
-        for poi_name, poi_xy in zip(poi_names, poi_xys):
-            self.poi_names.append(poi_name)
-            self.poi_pixel_xys.append((poi_xy[0], poi_xy[1], poi_xy[2]))
+        poi_names, poi_pixel_xys = pointOfInterest(self.config.poi_file, self.config.poi_field, scale, trf_arr)
+        self.poi_names = poi_names
+        self.poi_pixel_xys = poi_pixel_xys
 
-    def save_poi_results(self, crs_wkt: str) -> None:
-        for k in range(len(self.poi_pixel_xys)):
-            data_out = self.config.output_dir + "/POI_" + str(self.poi_names[k]) + ".txt"
-            np.savetxt(data_out, self.poi_pixel_xys[k], delimiter=" ", header=header, comments="")
+    def save_poi_results(self, trf_arr: list[float], crs_wkt: str) -> None:
+        """Save points of interest (POIs) results to a text file with geographic coordinates."""
+        if not self.poi_results:
+            return
+        # Extract header from first result and add lng/lat
+        header = ["name"] + list(self.poi_results[0].keys()) + ["lng", "lat"]
+        # Write results to file
+        output_path = self.config.output_dir + "/POI_results.txt"
+        with open(output_path, "w") as f:
+            f.write("\t".join(header) + "\n")
+            for result in self.poi_pixel_xys:
+                lng = result["pixel_x"] * trf_arr[1] + trf_arr[0]
+                lat = result["pixel_y"] * trf_arr[1] + trf_arr[3]
+                row_values = list(result.values()) + [lng, lat]
+                f.write("\t".join(map(str, row_values)) + "\n")
 
-    def load_met_weather(self, header_rows: int = 1, delim: str = " ") -> WeatherData:
-        """Load weather data from a MET file."""
-        met_data = np.loadtxt(self.config.met_path, skiprows=header_rows, delimiter=delim)
-        return WeatherData(
-            DOY=met_data[:, 1],
-            hours=met_data[:, 2],
-            minu=met_data[:, 3],
-            Ta=met_data[:, 11],
-            RH=met_data[:, 10],
-            radG=met_data[:, 14],
-            radD=met_data[:, 21],
-            radI=met_data[:, 22],
-            P=met_data[:, 12],
-            Ws=met_data[:, 9],
-        )
+    def load_woi_data(self, trf_arr: list[float]) -> tuple[Any, Any]:
+        """Load walls of interest (WOIs) from a file."""
+        scale = 1 / trf_arr[1]
+        woi_names, woi_pixel_xys = pointOfInterest(self.config.woi_file, self.config.woi_field, scale, trf_arr)
+        self.woi_names = woi_names
+        self.woi_pixel_xys = woi_pixel_xys
+
+    def save_woi_results(self, trf_arr: list[float], crs_wkt: str) -> None:
+        """Save walls of interest (WOIs) results to a text file with geographic coordinates."""
+        if not self.woi_results:
+            return
+        # Extract header from first result and add lng/lat
+        header = ["name"] + list(self.woi_results[0].keys()) + ["lng", "lat"]
+        # Write results to file
+        output_path = self.config.output_dir + "/WOI_results.txt"
+        with open(output_path, "w") as f:
+            f.write("\t".join(header) + "\n")
+            for result in self.woi_pixel_xys:
+                lng = result["pixel_x"] * trf_arr[1] + trf_arr[0]
+                lat = result["pixel_y"] * trf_arr[1] + trf_arr[3]
+                row_values = list(result.values()) + [lng, lat]
+                f.write("\t".join(map(str, row_values)) + "\n")

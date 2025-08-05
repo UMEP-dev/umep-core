@@ -1,178 +1,136 @@
 import json
 import zipfile
-from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
+from umep.functions.SOLWEIGpython.wallsAsNetCDF import walls_as_netcdf
+
 from ... import common
+from ...functions import wallalgorithms as wa
+from ...functions.SOLWEIGpython import PET_calculations
+from ...functions.SOLWEIGpython import Solweig_2025a_calc_forprocessing as so
+from ...functions.SOLWEIGpython import UTCI_calculations as utci
+from ...functions.SOLWEIGpython.CirclePlotBar import PolarBarPlot
+from ...functions.SOLWEIGpython.patch_characteristics import hemispheric_image
+from ...functions.SOLWEIGpython.wall_surface_temperature import load_walls
+from ...functions.SOLWEIGpython.wallsAsNetCDF import walls_as_netcdf
+from ...util.SEBESOLWEIGCommonFiles.clearnessindex_2013b import clearnessindex_2013b
+from ...util.SEBESOLWEIGCommonFiles.Solweig_v2015_metdata_noload import Solweig_2015a_metdata_noload
+from .solweig_runner_config import SolweigConfig, WeatherData
 
 
-@dataclass
-class SolweigConfig:
-    """Configuration class for SOLWEIG parameters."""
-
-    output_dir: Optional[str] = None
-    working_dir: Optional[str] = None
-    dsm_path: Optional[str] = None
-    svf_path: Optional[str] = None
-    wh_path: Optional[str] = None
-    wa_path: Optional[str] = None
-    epw_path: Optional[str] = None
-    epw_start_date: Optional[str] = None
-    epw_end_date: Optional[str] = None
-    epw_hours: Optional[list[int]] = None
-    met_path: Optional[str] = None
-    cdsm_path: Optional[str] = None
-    tdsm_path: Optional[str] = None
-    dem_path: Optional[str] = None
-    lc_path: Optional[str] = None
-    aniso_path: Optional[str] = None
-    poi_path: Optional[str] = None
-    poi_field: Optional[str] = None
-    wall_path: Optional[str] = None
-    woi_path: Optional[str] = None
-    woi_field: Optional[str] = None
-    only_global: bool = True
-    use_veg_dem: bool = True
-    conifer: bool = False
-    person_cylinder: bool = True
-    utc: bool = True
-    use_landcover: bool = True
-    use_dem_for_buildings: bool = False
-    use_aniso: bool = False
-    use_wall_scheme: bool = False
-    wall_type: Optional[str] = "Brick"
-    output_tmrt: bool = True
-    output_kup: bool = True
-    output_kdown: bool = True
-    output_lup: bool = True
-    output_ldown: bool = True
-    output_sh: bool = True
-    save_buildings: bool = True
-    output_kdiff: bool = True
-    output_tree_planter: bool = True
-    wall_netcdf: bool = False
-
-    def to_file(self, file_path: str):
-        """Save configuration to a file."""
-        with open(file_path, "w") as f:
-            for key in type(self).__annotations__:
-                value = getattr(self, key)
-                if value is None:
-                    value = ""  # Default to empty string if None
-                if isinstance(self.__annotations__[key], bool):
-                    f.write(f"{key}={int(value)}\n")
-                else:
-                    f.write(f"{key}={value}\n")
-
-    def from_file(self, config_path_str: str):
-        """Load configuration from a file."""
-        config_path = common.check_path(config_path_str)
-        with open(config_path) as f:
-            for line in f:
-                if "=" in line:
-                    key, value = line.strip().split("=", 1)
-                    if key in type(self).__annotations__:
-                        if value.strip() == "":
-                            value = None
-                        if type(self).__annotations__[key] == bool:
-                            setattr(self, key, value == "1" or value.lower() == "true")
-                        else:
-                            setattr(self, key, value)
-                    else:
-                        print(f"Unknown key in config: {key}")
-
-    def validate(self):
-        """Validate configuration parameters."""
-        if not self.output_dir:
-            raise ValueError("Output directory must be set.")
-        if not self.working_dir:
-            raise ValueError("Working directory must be set.")
-        if not self.dsm_path:
-            raise ValueError("DSM path must be set.")
-        if (self.met_path is None and self.epw_path is None) or (self.met_path and self.epw_path):
-            raise ValueError("Provide either MET or EPW weather file.")
-        if self.epw_path is not None:
-            if self.epw_start_date is None or self.epw_end_date is None:
-                raise ValueError("EPW start and end dates must be provided if EPW path is set.")
-            if self.epw_hours is None:
-                self.epw_hours = list(range(24))  # Default to all hours if not specified
-        # Add more validation as needed
+def dict_to_namespace(d):
+    """Recursively convert dicts to SimpleNamespace."""
+    if isinstance(d, dict):
+        return SimpleNamespace(**{k: dict_to_namespace(v) for k, v in d.items()})
+    elif isinstance(d, list):
+        return [dict_to_namespace(i) for i in d]
+    else:
+        return d
 
 
-@dataclass
-class WeatherData:
-    """Class to handle weather data loading and processing."""
+def Tgmaps_v1(lc_grid, params):
+    # Tgmaps_v1 Populates grids with cooeficients for Tg wave
+    #   Detailed explanation goes here
+    lc_grid[lc_grid >= 100] = 2
+    id = np.unique(lc_grid)
+    id = lc_grid[lc_grid <= 7].astype(int)
+    TgK = np.copy(lc_grid)
+    Tstart = np.copy(lc_grid)
+    alb_grid = np.copy(lc_grid)
+    emis_grid = np.copy(lc_grid)
+    TmaxLST = np.copy(lc_grid)
 
-    DOY: np.ndarray
-    hours: np.ndarray
-    minu: np.ndarray
-    Ta: np.ndarray
-    RH: np.ndarray
-    radG: np.ndarray
-    radD: np.ndarray
-    radI: np.ndarray
-    P: np.ndarray
-    Ws: np.ndarray
+    for i in id:
+        name = getattr(params.Names.Value, str(i), None)
+        # row = (lc_class[:, 0] == id[i])
+        Tstart[Tstart == i] = getattr(params.Tstart.Value, name, None)
+        alb_grid[alb_grid == i] = getattr(params.Albedo.Effective.Value, name, None)
+        emis_grid[emis_grid == i] = getattr(params.Emissivity.Value, name, None)
+        TmaxLST[TmaxLST == i] = getattr(params.TmaxLST.Value, name, None)
+        TgK[TgK == i] = getattr(params.Ts_deg.Value, name, None)
 
-    def to_array(self) -> np.ndarray:
-        """Convert weather data to a structured numpy array."""
-        return np.array(
-            [
-                self.DOY,
-                self.hours,
-                self.minu,
-                self.Ta,
-                self.RH,
-                self.radG,
-                self.radD,
-                self.radI,
-                self.P,
-                self.Ws,
-            ]
-        ).T
+    TgK_wall = getattr(params.Ts_deg.Value, "Walls", None)
+    Tstart_wall = getattr(params.Tstart.Value, "Walls", None)
+    TmaxLST_wall = getattr(params.TmaxLST.Value, "Walls", None)
+
+    return TgK, Tstart, alb_grid, emis_grid, TgK_wall, Tstart_wall, TmaxLST, TmaxLST_wall
 
 
 class SolweigRun:
     """Class to run the SOLWEIG algorithm with given configuration."""
 
-    def __init__(self, config: SolweigConfig, params_json_path: str, qgis_env: bool):
+    def __init__(self, config: SolweigConfig, params_json_path: str, qgis_env: bool = True):
         """Initialize the SOLWEIG runner with configuration and parameters."""
-        # Load configuration
         self.config = config
         self.config.validate()
-        self.feedback = None
+        # Progress tracking settings
+        self.progress = None
+        self.iters_total: int = 0
+        self.iters_count: int = 0
         self.qgis_env = qgis_env
         # Initialize POI data
         self.poi_names: list[Any] = []
-        self.poi_pixel_xys: list[tuple[float]] = []
+        self.poi_pixel_xys: np.ndarray | None = None
         self.poi_results = []
+        # Initialize WOI data
+        self.woi_names: list[Any] = []
+        self.woi_pixel_xys: np.ndarray | None = None
+        self.woi_results = []
         # Load parameters from JSON file
-        with open(params_json_path) as f:
-            params_dict = json.load(f)
-            self.params = SimpleNamespace(**params_dict)
+        params_path = common.check_path(params_json_path)
+        try:
+            with open(params_path) as f:
+                params_dict = json.load(f)
+                self.params = dict_to_namespace(params_dict)
+        except Exception as e:
+            raise RuntimeError(f"Failed to load parameters from {params_json_path}: {e}")
 
-    def set_feedback(self, feedback: Any):
-        """Set feedback object for progress updates."""
-        self.feedback = feedback
+    def prep_progress(self, num: int) -> None:
+        """Prepare progress for environment."""
+        raise NotImplementedError("This method should be implemented in subclasses.")
+
+    def iter_progress(self) -> bool:
+        """Iterate progress ."""
+        raise NotImplementedError("This method should be implemented in subclasses.")
 
     def load_epw_weather(self) -> WeatherData:
         """Load weather data from an EPW file."""
         raise NotImplementedError("This method should be implemented in subclasses.")
 
-    def load_met_weather(self) -> WeatherData:
+    def load_met_weather(self, header_rows: int = 1, delim: str = " ") -> WeatherData:
         """Load weather data from a MET file."""
-        raise NotImplementedError("This method should be implemented in subclasses.")
+        met_data = np.loadtxt(self.config.met_path, skiprows=header_rows, delimiter=delim)
+        return WeatherData(
+            DOY=met_data[:, 1],
+            hours=met_data[:, 2],
+            minu=met_data[:, 3],
+            Ta=met_data[:, 11],
+            RH=met_data[:, 10],
+            radG=met_data[:, 14],
+            radD=met_data[:, 21],
+            radI=met_data[:, 22],
+            P=met_data[:, 12],
+            Ws=met_data[:, 9],
+        )
 
-    def load_poi_data(self, trf_arr: list[int]) -> None:
+    def load_poi_data(self, trf_arr: list[float]) -> None:
         """Load point of interest (POI) data from a file."""
         raise NotImplementedError("This method should be implemented in subclasses.")
 
-    def save_poi_results(self, crs_wkt: str) -> None:
+    def save_poi_results(self, trf_arr: list[float], crs_wkt: str) -> None:
         """Save results for points of interest (POIs) to files."""
+        raise NotImplementedError("This method should be implemented in subclasses.")
+
+    def load_woi_data(self, trf_arr: list[float]) -> None:
+        """Load wall of interest (WOI) data from a file."""
+        raise NotImplementedError("This method should be implemented in subclasses.")
+
+    def save_woi_results(self, trf_arr: list[float], crs_wkt: str) -> None:
+        """Save results for walls of interest (WOIs) to files."""
         raise NotImplementedError("This method should be implemented in subclasses.")
 
     def run(self) -> None:
@@ -267,7 +225,7 @@ class SolweigRun:
         wallaspect, _, _, _ = common.load_raster(self.config.wa_path, bbox=None)
 
         # weather data
-        if self.qgis_env:
+        if self.config.epw_path:
             weather_data = self.load_epw_weather()
         else:
             weather_data = self.load_met_weather(header_rows=1, delim=" ")
@@ -429,16 +387,16 @@ class SolweigRun:
             voxelTable = wallData["voxelTable"]
 
             # Get wall type
-            if self.qgis_env:
-                wall_type = self.config.wall_type
-            else:
+            if self.qgis_env is False:
                 wall_type_standalone = {"Brick_wall": "100", "Concrete_wall": "101", "Wood_wall": "102"}
                 wall_type = wall_type_standalone[self.config.wall_type]
+            else:
+                wall_type = self.config.wall_type
 
-            # Get heights and aspects of walls
-            wall_hts, _, _, _, _ = common.load_raster(self.config.wh_path, bbox=None)
-            wall_dirs, _, _, _, _ = common.load_raster(self.config.wa_path, bbox=None)
-
+            # Get heights of walls including corners
+            walls_scheme = wa.findwalls_sp(dsm_arr, 2, np.array([[1, 1, 1], [1, 0, 1], [1, 1, 1]]))
+            # Get aspects of walls including corners
+            dirwalls_scheme = wa.filter1Goodwin_as_aspect_v3(walls_scheme.copy(), scale, dsm_arr, None, 100.0 / 180.0)
             # Calculate timeStep
             first_timestep = (
                 pd.to_datetime(YYYY[0][0], format="%Y")
@@ -455,11 +413,11 @@ class SolweigRun:
             timeStep = (second_timestep - first_timestep).seconds
 
             # Load voxelTable as Pandas DataFrame
-            voxelTable, wall_dirs = load_walls(
+            voxelTable, dirwalls_scheme = load_walls(
                 voxelTable,
                 self.params,
                 wall_type,
-                wall_dirs,
+                dirwalls_scheme,
                 weather_data.Ta[0],
                 timeStep,
                 alb_grid,
@@ -470,8 +428,7 @@ class SolweigRun:
 
             # Use wall of interest
             if self.config.woi_path:
-                # TODO: Implement WOI logic for the new structure
-                pass
+                self.load_woi_data(dsm_trf_arr)
 
             # Create pandas datetime object for NetCDF output
             if self.config.wall_netcdf:
@@ -485,5 +442,518 @@ class SolweigRun:
             voxelMaps = None
             voxelTable = None
             timeStep = 0
-            wall_hts = np.ones((rows, cols)) * 10.0
-            wall_dirs = np.ones((rows, cols)) * 10.0
+            walls_scheme = np.ones((rows, cols)) * 10.0
+            dirwalls_scheme = np.ones((rows, cols)) * 10.0
+
+        # Initialisation of time related variables
+        if weather_data.Ta.__len__() == 1:
+            timestepdec = 0
+        else:
+            timestepdec = dectime[1] - dectime[0]
+        timeadd = 0.0
+        firstdaytime = 1.0
+
+        # Save hemispheric image
+        if self.config.use_aniso and self.poi_pixel_xys is not None:
+            patch_characteristics = hemispheric_image(
+                self.poi_pixel_xys,
+                shmat,
+                vegshmat,
+                vbshvegshmat,
+                voxelMaps,
+                walls_scheme,
+            )
+
+        # If metfile starts at night
+        CI = 1.0
+
+        # reading variables from config and parameters that is not yet presented
+        albedo_b = self.params.Albedo.Effective.Value.Walls
+        ewall = self.params.Emissivity.Value.Walls
+        elvis = 0.0
+        absK = self.params.Tmrt_params.Value.absK
+        absL = self.params.Tmrt_params.Value.absL
+
+        # Main loop
+        tmrtplot = np.zeros((rows, cols))
+        TgOut1 = np.zeros((rows, cols))
+
+        # Initiate array for I0 values
+        if np.unique(weather_data.DOY).shape[0] > 1:
+            unique_days = np.unique(weather_data.DOY)
+            first_unique_day = weather_data.DOY[unique_days[0] == weather_data.DOY]
+            I0_array = np.zeros(first_unique_day.shape[0])
+        else:
+            first_unique_day = weather_data.DOY.copy()
+            I0_array = np.zeros(weather_data.DOY.shape[0])
+
+        self.prep_progress(weather_data.Ta.__len__())
+
+        for i in np.arange(0, self.iters_total):
+            proceed = self.iter_progress()
+            if not proceed:
+                break
+
+            # Daily water body temperature
+            Twater = []
+            if self.config.use_landcover:
+                if (dectime[i] - np.floor(dectime[i])) == 0 or (i == 0):
+                    Twater = np.mean(weather_data.Ta[jday[0] == np.floor(dectime[i])])
+
+            # Nocturnal cloudfraction from Offerle et al. 2003
+            if (dectime[i] - np.floor(dectime[i])) == 0:
+                daylines = np.where(np.floor(dectime) == dectime[i])
+                if daylines.__len__() > 1:
+                    alt_day = altitude[0][daylines]
+                    alt2 = np.where(alt_day > 1)
+                    rise = alt2[0][0]
+                    [_, CI, _, _, _] = clearnessindex_2013b(
+                        zen[0, i + rise + 1],
+                        jday[0, i + rise + 1],
+                        weather_data.Ta[i + rise + 1],
+                        weather_data.RH[i + rise + 1] / 100.0,
+                        weather_data.radG[i + rise + 1],
+                        location,
+                        weather_data.P[i + rise + 1],
+                    )
+                    if (CI > 1.0) or (np.inf == CI):
+                        CI = 1.0
+                else:
+                    CI = 1.0
+
+            (
+                Tmrt,
+                Kdown,
+                Kup,
+                Ldown,
+                Lup,
+                Tg,
+                ea,
+                esky,
+                I0,
+                CI,
+                shadow,
+                firstdaytime,
+                timestepdec,
+                timeadd,
+                Tgmap1,
+                Tgmap1E,
+                Tgmap1S,
+                Tgmap1W,
+                Tgmap1N,
+                Keast,
+                Ksouth,
+                Kwest,
+                Knorth,
+                Least,
+                Lsouth,
+                Lwest,
+                Lnorth,
+                KsideI,
+                TgOut1,
+                TgOut,
+                radIout,
+                radDout,
+                Lside,
+                Lsky_patch_characteristics,
+                CI_Tg,
+                CI_TgG,
+                KsideD,
+                dRad,
+                Kside,
+                steradians,
+                voxelTable,
+            ) = so.Solweig_2025a_calc(
+                i,
+                dsm_arr,
+                scale,
+                rows,
+                cols,
+                svf,
+                svfN,
+                svfW,
+                svfE,
+                svfS,
+                svfveg,
+                svfNveg,
+                svfEveg,
+                svfSveg,
+                svfWveg,
+                svfaveg,
+                svfEaveg,
+                svfSaveg,
+                svfWaveg,
+                svfNaveg,
+                vegdsm,
+                vegdsm2,
+                albedo_b,
+                absK,
+                absL,
+                ewall,
+                Fside,
+                Fup,
+                Fcyl,
+                altitude[0][i],
+                azimuth[0][i],
+                zen[0][i],
+                jday[0][i],
+                self.config.use_veg_dem,
+                self.config.only_global,
+                buildings,
+                location,
+                psi[0][i],
+                self.config.use_landcover,
+                lcgrid,
+                dectime[i],
+                altmax[0][i],
+                wallaspect,
+                wallheight,
+                self.config.person_cylinder,
+                elvis,
+                weather_data.Ta[i],
+                weather_data.RH[i],
+                weather_data.radG[i],
+                weather_data.radD[i],
+                weather_data.radI[i],
+                weather_data.P[i],
+                amaxvalue,
+                bush,
+                Twater,
+                TgK,
+                Tstart,
+                alb_grid,
+                emis_grid,
+                TgK_wall,
+                Tstart_wall,
+                TmaxLST,
+                TmaxLST_wall,
+                first,
+                second,
+                svfalfa,
+                svfbuveg,
+                firstdaytime,
+                timeadd,
+                timestepdec,
+                Tgmap1,
+                Tgmap1E,
+                Tgmap1S,
+                Tgmap1W,
+                Tgmap1N,
+                CI,
+                TgOut1,
+                diffsh,
+                shmat,
+                vegshmat,
+                vbshvegshmat,
+                self.config.use_aniso,
+                asvf,
+                patch_option,
+                voxelMaps,
+                voxelTable,
+                weather_data.Ws[i],
+                self.config.use_wall_scheme,
+                timeStep,
+                steradians,
+                walls_scheme,
+                dirwalls_scheme,
+            )
+
+            # Save I0 for I0 vs. Kdown output plot to check if UTC is off
+            if i < first_unique_day.shape[0]:
+                I0_array[i] = I0
+            elif i == first_unique_day.shape[0]:
+                # Output I0 vs. Kglobal plot
+                radG_for_plot = weather_data.radG[first_unique_day[0] == weather_data.DOY]
+                dectime_for_plot = dectime[first_unique_day[0] == weather_data.DOY]
+                fig, ax = plt.subplots()
+                ax.plot(dectime_for_plot, I0_array, label="I0")
+                ax.plot(dectime_for_plot, radG_for_plot, label="Kglobal")
+                ax.set_ylabel("Shortwave radiation [$Wm^{-2}$]")
+                ax.set_xlabel("Decimal time")
+                ax.set_title("UTC" + str(self.config.utc))
+                ax.legend()
+                fig.savefig(self.config.output_dir + "/metCheck.png", dpi=150)
+
+            tmrtplot = tmrtplot + Tmrt
+
+            if altitude[0][i] > 0:
+                w = "D"
+            else:
+                w = "N"
+
+            if weather_data.hours[i] < 10:
+                XH = "0"
+            else:
+                XH = ""
+
+            if weather_data.minu[i] < 10:
+                XM = "0"
+            else:
+                XM = ""
+
+            if self.poi_pixel_xys is not None:
+                for n in range(0, self.poi_pixel_xys.shape[0]):
+                    idx, row_idx, col_idx = self.poi_pixel_xys[n]
+                    row_idx = int(row_idx)
+                    col_idx = int(col_idx)
+                    result_row = {
+                        "poi_idx": idx,
+                        "yyyy": YYYY[0, i],
+                        "id": jday[0, i],
+                        "it": weather_data.hours[i],
+                        "imin": weather_data.minu[i],
+                        "dectime": dectime[i],
+                        "altitude": altitude[0, i],
+                        "azimuth": azimuth[0, i],
+                        "kdir": radIout,
+                        "kdiff": radDout,
+                        "kglobal": weather_data.radG[i],
+                        "kdown": Kdown[row_idx, col_idx],
+                        "kup": Kup[row_idx, col_idx],
+                        "keast": Keast[row_idx, col_idx],
+                        "ksouth": Ksouth[row_idx, col_idx],
+                        "kwest": Kwest[row_idx, col_idx],
+                        "knorth": Knorth[row_idx, col_idx],
+                        "ldown": Ldown[row_idx, col_idx],
+                        "lup": Lup[row_idx, col_idx],
+                        "least": Least[row_idx, col_idx],
+                        "lsouth": Lsouth[row_idx, col_idx],
+                        "lwest": Lwest[row_idx, col_idx],
+                        "lnorth": Lnorth[row_idx, col_idx],
+                        "Ta": weather_data.Ta[i],
+                        "Tg": TgOut[row_idx, col_idx],
+                        "RH": weather_data.RH[i],
+                        "Esky": esky,
+                        "Tmrt": Tmrt[row_idx, col_idx],
+                        "I0": I0,
+                        "CI": CI,
+                        "Shadow": shadow[row_idx, col_idx],
+                        "SVF_b": svf[row_idx, col_idx],
+                        "SVF_bv": svfbuveg[row_idx, col_idx],
+                        "KsideI": KsideI[row_idx, col_idx],
+                    }
+                    # Recalculating wind speed based on powerlaw
+                    WsPET = (1.1 / self.params.Wind_Height.Value.magl) ** 0.2 * weather_data.Ws[i]
+                    WsUTCI = (10.0 / self.params.Wind_Height.Value.magl) ** 0.2 * weather_data.Ws[i]
+                    resultPET = PET_calculations._PET(
+                        weather_data.Ta[i],
+                        weather_data.RH[i],
+                        Tmrt[row_idx, col_idx],
+                        WsPET,
+                        self.params.PET_settings.Value.Weight,
+                        self.params.PET_settings.Value.Age,
+                        self.params.PET_settings.Value.Height,
+                        self.params.PET_settings.Value.Activity,
+                        self.params.PET_settings.Value.clo,
+                        self.params.PET_settings.Value.Sex,
+                    )
+                    result_row["PET"] = resultPET
+                    resultUTCI = utci.utci_calculator(
+                        weather_data.Ta[i], weather_data.RH[i], Tmrt[row_idx, col_idx], WsUTCI
+                    )
+                    result_row["UTCI"] = resultUTCI
+                    result_row["CI_Tg"] = CI_Tg
+                    result_row["CI_TgG"] = CI_TgG
+                    result_row["KsideD"] = KsideD[row_idx, col_idx]
+                    result_row["Lside"] = Lside[row_idx, col_idx]
+                    result_row["diffDown"] = dRad[row_idx, col_idx]
+                    result_row["Kside"] = Kside[row_idx, col_idx]
+                    self.poi_results.append(result_row)
+
+            if self.woi_pixel_xys is not None:
+                for n in range(0, self.woi_pixel_xys.shape[0]):
+                    idx, row_idx, col_idx = self.woi_pixel_xys[n]
+                    row_idx = int(row_idx)
+                    col_idx = int(col_idx)
+
+                    temp_wall = voxelTable.loc[
+                        ((voxelTable["ypos"] == row_idx) & (voxelTable["xpos"] == col_idx)), "wallTemperature"
+                    ].to_numpy()
+                    K_in = voxelTable.loc[
+                        ((voxelTable["ypos"] == row_idx) & (voxelTable["xpos"] == col_idx)), "K_in"
+                    ].to_numpy()
+                    L_in = voxelTable.loc[
+                        ((voxelTable["ypos"] == row_idx) & (voxelTable["xpos"] == col_idx)), "L_in"
+                    ].to_numpy()
+                    wallShade = voxelTable.loc[
+                        ((voxelTable["ypos"] == row_idx) & (voxelTable["xpos"] == col_idx)), "wallShade"
+                    ].to_numpy()
+
+                    result_row = {
+                        "woi_idx": idx,
+                        "woi_name": self.woi_names[idx],
+                        "yyyy": YYYY[0, i],
+                        "id": jday[0, i],
+                        "it": weather_data.hours[i],
+                        "imin": weather_data.minu[i],
+                        "dectime": dectime[i],
+                        "Ta": weather_data.Ta[i],
+                        "SVF": svf[row_idx, col_idx],
+                        "Ts": temp_wall,
+                        "Kin": K_in,
+                        "Lin": L_in,
+                        "shade": wallShade,
+                        "pixel_x": col_idx,
+                        "pixel_y": row_idx,
+                    }
+                    self.woi_results.append(result_row)
+
+                if self.config.wall_netcdf:
+                    netcdf_output = self.config.output_dir + "/walls.nc"
+                    walls_as_netcdf(
+                        voxelTable, rows, cols, met_for_xarray, i, dsm_arr, self.config.dsm_path, netcdf_output
+                    )
+
+            time_code = (
+                str(int(YYYY[0, i]))
+                + "_"
+                + str(int(weather_data.DOY[i]))
+                + "_"
+                + XH
+                + str(int(weather_data.hours[i]))
+                + XM
+                + str(int(weather_data.minu[i]))
+                + w
+            )
+
+            if self.config.output_tmrt:
+                common.save_raster(
+                    self.config.output_dir + "/Tmrt_" + time_code + ".tif",
+                    Tmrt,
+                    dsm_trf_arr,
+                    dsm_crs_wkt,
+                    dsm_nd_val,
+                )
+            if self.config.output_kup:
+                common.save_raster(
+                    self.config.output_dir + "/Kup_" + time_code + ".tif",
+                    Kup,
+                    dsm_trf_arr,
+                    dsm_crs_wkt,
+                    dsm_nd_val,
+                )
+            if self.config.output_kdown:
+                common.save_raster(
+                    self.config.output_dir + "/Kdown_" + time_code + ".tif",
+                    Kdown,
+                    dsm_trf_arr,
+                    dsm_crs_wkt,
+                    dsm_nd_val,
+                )
+            if self.config.output_lup:
+                common.save_raster(
+                    self.config.output_dir + "/Lup_" + time_code + ".tif",
+                    Lup,
+                    dsm_trf_arr,
+                    dsm_crs_wkt,
+                    dsm_nd_val,
+                )
+            if self.config.output_ldown:
+                common.save_raster(
+                    self.config.output_dir + "/Ldown_" + time_code + ".tif",
+                    Ldown,
+                    dsm_trf_arr,
+                    dsm_crs_wkt,
+                    dsm_nd_val,
+                )
+            if self.config.output_sh:
+                common.save_raster(
+                    self.config.output_dir + "/Shadow_" + time_code + ".tif",
+                    shadow,
+                    dsm_trf_arr,
+                    dsm_crs_wkt,
+                    dsm_nd_val,
+                )
+            if self.config.output_kdiff:
+                common.save_raster(
+                    self.config.output_dir + "/Kdiff_" + time_code + ".tif",
+                    dRad,
+                    dsm_trf_arr,
+                    dsm_crs_wkt,
+                    dsm_nd_val,
+                )
+
+            # Sky view image of patches
+            if (self.config.aniso_path) and (i == 0) and (self.poi_pixel_xys is not None):
+                for k in range(self.poi_pixel_xys.shape[0]):
+                    Lsky_patch_characteristics[:, 2] = patch_characteristics[:, k]
+                    skyviewimage_out = self.config.output_dir + "/POI_" + str(self.poi_names[k]) + ".png"
+                    PolarBarPlot(
+                        Lsky_patch_characteristics,
+                        altitude[0][i],
+                        azimuth[0][i],
+                        "Hemisphere partitioning",
+                        skyviewimage_out,
+                        0,
+                        5,
+                        0,
+                    )
+
+        # Save POI results
+        if self.poi_results:
+            self.save_poi_results(dsm_trf_arr, dsm_crs_wkt)
+
+        # Save WOI results
+        if self.woi_results:
+            self.save_woi_results(dsm_trf_arr, dsm_crs_wkt)
+
+        # Save Tree Planter results
+        if self.config.output_tree_planter:
+            albedo_g = self.params.Albedo.Effective.Value.Cobble_stone_2014a
+            eground = self.params.Emissivity.Value.Cobble_stone_2014a
+            pos = 1 if self.params.Tmrt_params.Value.posture == "Standing" else 0
+
+            settingsHeader = "UTC, posture, onlyglobal, landcover, anisotropic, cylinder, albedo_walls, albedo_ground, emissivity_walls, emissivity_ground, absK, absL, elevation, patch_option"
+            settingsFmt = (
+                "%i",
+                "%i",
+                "%i",
+                "%i",
+                "%i",
+                "%i",
+                "%1.2f",
+                "%1.2f",
+                "%1.2f",
+                "%1.2f",
+                "%1.2f",
+                "%1.2f",
+                "%1.2f",
+                "%i",
+            )
+            settingsData = np.array(
+                [
+                    [
+                        int(self.config.utc),
+                        pos,
+                        self.config.only_global,
+                        self.config.use_landcover,
+                        self.config.use_aniso,
+                        self.config.person_cylinder,
+                        albedo_b,
+                        albedo_g,
+                        ewall,
+                        eground,
+                        absK,
+                        absL,
+                        alt,
+                        patch_option,
+                    ]
+                ]
+            )
+            np.savetxt(
+                self.config.output_dir + "/treeplantersettings.txt",
+                settingsData,
+                fmt=settingsFmt,
+                header=settingsHeader,
+                delimiter=" ",
+            )
+
+        # Save average Tmrt raster
+        tmrtplot = tmrtplot / self.iters_total
+        common.save_raster(
+            self.config.output_dir + "/Tmrt_average.tif",
+            tmrtplot,
+            dsm_trf_arr,
+            dsm_crs_wkt,
+            dsm_nd_val,
+        )
