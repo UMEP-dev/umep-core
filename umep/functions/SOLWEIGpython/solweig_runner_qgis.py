@@ -1,8 +1,8 @@
 from typing import Any
 
-from ...functions.SOLWEIGpython.wallOfInterest import pointOfInterest
+from ...class_configs import SolweigConfig
 from .solweig_runner import SolweigRun
-from .solweig_runner_config import SolweigConfig
+from .wallOfInterest import pointOfInterest
 
 
 class SolweigRunQgis(SolweigRun):

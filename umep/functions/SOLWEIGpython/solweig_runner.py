@@ -6,20 +6,18 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from umep.functions.SOLWEIGpython.wallsAsNetCDF import walls_as_netcdf
-
 from ... import common
+from ...class_configs import SolweigConfig, SvfData, WeatherData
 from ...functions import wallalgorithms as wa
-from ...functions.SOLWEIGpython import PET_calculations
-from ...functions.SOLWEIGpython import Solweig_2025a_calc_forprocessing as so
-from ...functions.SOLWEIGpython import UTCI_calculations as utci
-from ...functions.SOLWEIGpython.CirclePlotBar import PolarBarPlot
-from ...functions.SOLWEIGpython.patch_characteristics import hemispheric_image
-from ...functions.SOLWEIGpython.wall_surface_temperature import load_walls
-from ...functions.SOLWEIGpython.wallsAsNetCDF import walls_as_netcdf
 from ...util.SEBESOLWEIGCommonFiles.clearnessindex_2013b import clearnessindex_2013b
 from ...util.SEBESOLWEIGCommonFiles.Solweig_v2015_metdata_noload import Solweig_2015a_metdata_noload
-from .solweig_runner_config import SolweigConfig, WeatherData
+from . import PET_calculations
+from . import Solweig_2025a_calc_forprocessing as so
+from . import UTCI_calculations as utci
+from .CirclePlotBar import PolarBarPlot
+from .patch_characteristics import hemispheric_image
+from .wall_surface_temperature import load_walls
+from .wallsAsNetCDF import walls_as_netcdf
 
 
 def dict_to_namespace(d):
@@ -187,37 +185,9 @@ class SolweigRun:
         # SVF
         with zipfile.ZipFile(self.config.svf_path, "r") as zip_ref:
             zip_ref.extractall(self.config.working_dir)
-
-        svf, _, _, _ = common.load_raster(self.config.working_dir + "/svf.tif", bbox=None)
-        svfN, _, _, _ = common.load_raster(self.config.working_dir + "/svfN.tif", bbox=None)
-        svfS, _, _, _ = common.load_raster(self.config.working_dir + "/svfS.tif", bbox=None)
-        svfE, _, _, _ = common.load_raster(self.config.working_dir + "/svfE.tif", bbox=None)
-        svfW, _, _, _ = common.load_raster(self.config.working_dir + "/svfW.tif", bbox=None)
-
-        if self.config.use_veg_dem:
-            svfveg, _, _, _ = common.load_raster(self.config.working_dir + "/svfveg.tif", bbox=None)
-            svfNveg, _, _, _ = common.load_raster(self.config.working_dir + "/svfNveg.tif", bbox=None)
-            svfSveg, _, _, _ = common.load_raster(self.config.working_dir + "/svfSveg.tif", bbox=None)
-            svfEveg, _, _, _ = common.load_raster(self.config.working_dir + "/svfEveg.tif", bbox=None)
-            svfWveg, _, _, _ = common.load_raster(self.config.working_dir + "/svfWaveg.tif", bbox=None)
-            svfaveg, _, _, _ = common.load_raster(self.config.working_dir + "/svfaveg.tif", bbox=None)
-            svfNaveg, _, _, _ = common.load_raster(self.config.working_dir + "/svfNaveg.tif", bbox=None)
-            svfSaveg, _, _, _ = common.load_raster(self.config.working_dir + "/svfSaveg.tif", bbox=None)
-            svfEaveg, _, _, _ = common.load_raster(self.config.working_dir + "/svfEaveg.tif", bbox=None)
-            svfWaveg, _, _, _ = common.load_raster(self.config.working_dir + "/svfWaveg.tif", bbox=None)
-        else:
-            svfveg = np.ones((rows, cols))
-            svfNveg = np.ones((rows, cols))
-            svfSveg = np.ones((rows, cols))
-            svfEveg = np.ones((rows, cols))
-            svfWveg = np.ones((rows, cols))
-            svfaveg = np.ones((rows, cols))
-            svfNaveg = np.ones((rows, cols))
-            svfSaveg = np.ones((rows, cols))
-            svfEaveg = np.ones((rows, cols))
-            svfWaveg = np.ones((rows, cols))
-
-        tmp = svf + svfveg - 1.0
+        # Load SVF data
+        svf_data = SvfData(self.config.working_dir, self.config.use_veg_dem)
+        tmp = svf_data.svf + svf_data.svf_veg - 1.0
         tmp[tmp < 0.0] = 0.0
         svfalfa = np.arcsin(np.exp(np.log(1.0 - tmp) / 2.0))
 
@@ -225,7 +195,7 @@ class SolweigRun:
         wallaspect, _, _, _ = common.load_raster(self.config.wa_path, bbox=None)
 
         # weather data
-        if self.config.epw_path:
+        if self.config.use_epw_file:
             weather_data = self.load_epw_weather()
         else:
             weather_data = self.load_met_weather(header_rows=1, delim=" ")
@@ -286,10 +256,10 @@ class SolweigRun:
             # % Bush separation
             bush = np.logical_not(vegdsm2 * vegdsm) * vegdsm
 
-            svfbuveg = svf - (1.0 - svfveg) * (1.0 - transVeg)  # % major bug fixed 20141203
+            svfbuveg = svf_data.svf - (1.0 - svf_data.svf_veg) * (1.0 - transVeg)  # % major bug fixed 20141203
         else:
             psi = leafon * 0.0 + 1.0
-            svfbuveg = svf
+            svfbuveg = svf_data.svf
             bush = np.zeros([rows, cols])
             amaxvalue = 0
 
@@ -350,7 +320,7 @@ class SolweigRun:
                 patch_option = 4  # patch_option = 4 # 612 patches
 
             # asvf to calculate sunlit and shaded patches
-            asvf = np.arccos(np.sqrt(svf))
+            asvf = np.arccos(np.sqrt(svf_data.svf))
 
             # Empty array for steradians
             steradians = np.zeros(shmat.shape[2])
@@ -569,21 +539,21 @@ class SolweigRun:
                 scale,
                 rows,
                 cols,
-                svf,
-                svfN,
-                svfW,
-                svfE,
-                svfS,
-                svfveg,
-                svfNveg,
-                svfEveg,
-                svfSveg,
-                svfWveg,
-                svfaveg,
-                svfEaveg,
-                svfSaveg,
-                svfWaveg,
-                svfNaveg,
+                svf_data.svf,
+                svf_data.svf_north,
+                svf_data.svf_west,
+                svf_data.svf_east,
+                svf_data.svf_south,
+                svf_data.svf_veg,
+                svf_data.svf_veg_north,
+                svf_data.svf_veg_east,
+                svf_data.svf_veg_south,
+                svf_data.svf_veg_west,
+                svf_data.svf_veg_blocks_bldg_sh,
+                svf_data.svf_veg_blocks_bldg_sh_east,
+                svf_data.svf_veg_blocks_bldg_sh_south,
+                svf_data.svf_veg_blocks_bldg_sh_west,
+                svf_data.svf_veg_blocks_bldg_sh_north,
                 vegdsm,
                 vegdsm2,
                 albedo_b,
@@ -728,7 +698,7 @@ class SolweigRun:
                         "I0": I0,
                         "CI": CI,
                         "Shadow": shadow[row_idx, col_idx],
-                        "SVF_b": svf[row_idx, col_idx],
+                        "SVF_b": svf_data.svf[row_idx, col_idx],
                         "SVF_bv": svfbuveg[row_idx, col_idx],
                         "KsideI": KsideI[row_idx, col_idx],
                     }
@@ -788,7 +758,7 @@ class SolweigRun:
                         "imin": weather_data.minu[i],
                         "dectime": dectime[i],
                         "Ta": weather_data.Ta[i],
-                        "SVF": svf[row_idx, col_idx],
+                        "SVF": svf_data.svf[row_idx, col_idx],
                         "Ts": temp_wall,
                         "Kin": K_in,
                         "Lin": L_in,

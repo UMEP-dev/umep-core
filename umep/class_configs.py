@@ -3,7 +3,79 @@ from typing import Optional
 
 import numpy as np
 
-from ... import common
+from . import common
+
+
+class SvfData:
+    """Class to handle SVF data loading and processing."""
+
+    def __init__(self, in_path_str: str, use_cdsm: bool = False):
+        """
+        Loads SVF and shadow matrix results from disk and returns a SVFResults dataclass instance.
+        """
+        in_path_str = str(common.check_path(in_path_str, make_dir=False))
+
+        # Load SVF rasters
+        self.svf, _, _, _ = common.load_raster(in_path_str + "/" + "svf.tif")
+        self.svf_east, _, _, _ = common.load_raster(in_path_str + "/" + "svfE.tif")
+        self.svf_south, _, _, _ = common.load_raster(in_path_str + "/" + "svfS.tif")
+        self.svf_west, _, _, _ = common.load_raster(in_path_str + "/" + "svfW.tif")
+        self.svf_north, _, _, _ = common.load_raster(in_path_str + "/" + "svfN.tif")
+        if use_cdsm:
+            self.svf_veg, _, _, _ = common.load_raster(in_path_str + "/" + "svfveg.tif")
+            self.svf_veg_east, _, _, _ = common.load_raster(in_path_str + "/" + "svfEveg.tif")
+            self.svf_veg_south, _, _, _ = common.load_raster(in_path_str + "/" + "svfSveg.tif")
+            self.svf_veg_west, _, _, _ = common.load_raster(in_path_str + "/" + "svfWveg.tif")
+            self.svf_veg_north, _, _, _ = common.load_raster(in_path_str + "/" + "svfNveg.tif")
+            self.svf_veg_blocks_bldg_sh, _, _, _ = common.load_raster(in_path_str + "/" + "svfaveg.tif")
+            self.svf_veg_blocks_bldg_sh_east, _, _, _ = common.load_raster(in_path_str + "/" + "svfEaveg.tif")
+            self.svf_veg_blocks_bldg_sh_south, _, _, _ = common.load_raster(in_path_str + "/" + "svfSaveg.tif")
+            self.svf_veg_blocks_bldg_sh_west, _, _, _ = common.load_raster(in_path_str + "/" + "svfWaveg.tif")
+            self.svf_veg_blocks_bldg_sh_north, _, _, _ = common.load_raster(in_path_str + "/" + "svfNaveg.tif")
+        else:
+            self.svf_veg = np.ones_like(self.svf)
+            self.svf_veg_east = np.ones_like(self.svf)
+            self.svf_veg_south = np.ones_like(self.svf)
+            self.svf_veg_west = np.ones_like(self.svf)
+            self.svf_veg_north = np.ones_like(self.svf)
+            self.svf_veg_blocks_bldg_sh = np.ones_like(self.svf)
+            self.svf_veg_blocks_bldg_sh_east = np.ones_like(self.svf)
+            self.svf_veg_blocks_bldg_sh_south = np.ones_like(self.svf)
+            self.svf_veg_blocks_bldg_sh_west = np.ones_like(self.svf)
+            self.svf_veg_blocks_bldg_sh_north = np.ones_like(self.svf)
+
+
+@dataclass
+class WeatherData:
+    """Class to handle weather data loading and processing."""
+
+    DOY: np.ndarray
+    hours: np.ndarray
+    minu: np.ndarray
+    Ta: np.ndarray
+    RH: np.ndarray
+    radG: np.ndarray
+    radD: np.ndarray
+    radI: np.ndarray
+    P: np.ndarray
+    Ws: np.ndarray
+
+    def to_array(self) -> np.ndarray:
+        """Convert weather data to a structured numpy array."""
+        return np.array(
+            [
+                self.DOY,
+                self.hours,
+                self.minu,
+                self.Ta,
+                self.RH,
+                self.radG,
+                self.radD,
+                self.radI,
+                self.P,
+                self.Ws,
+            ]
+        ).T
 
 
 @dataclass
@@ -16,6 +88,7 @@ class SolweigConfig:
     svf_path: Optional[str] = None
     wh_path: Optional[str] = None
     wa_path: Optional[str] = None
+    use_epw_file: bool = False
     epw_path: Optional[str] = None
     epw_start_date: Optional[str] = None
     epw_end_date: Optional[str] = None
@@ -99,36 +172,3 @@ class SolweigConfig:
             if self.epw_hours is None:
                 self.epw_hours = list(range(24))  # Default to all hours if not specified
         # Add more validation as needed
-
-
-@dataclass
-class WeatherData:
-    """Class to handle weather data loading and processing."""
-
-    DOY: np.ndarray
-    hours: np.ndarray
-    minu: np.ndarray
-    Ta: np.ndarray
-    RH: np.ndarray
-    radG: np.ndarray
-    radD: np.ndarray
-    radI: np.ndarray
-    P: np.ndarray
-    Ws: np.ndarray
-
-    def to_array(self) -> np.ndarray:
-        """Convert weather data to a structured numpy array."""
-        return np.array(
-            [
-                self.DOY,
-                self.hours,
-                self.minu,
-                self.Ta,
-                self.RH,
-                self.radG,
-                self.radD,
-                self.radI,
-                self.P,
-                self.Ws,
-            ]
-        ).T

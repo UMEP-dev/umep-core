@@ -7,8 +7,8 @@ from pvlib.iotools import read_epw
 from rasterio.transform import Affine, rowcol
 from tqdm import tqdm
 
+from ...class_configs import SolweigConfig, WeatherData
 from .solweig_runner import SolweigRun
-from .solweig_runner_config import SolweigConfig, WeatherData
 
 
 class SolweigRunCore(SolweigRun):

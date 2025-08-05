@@ -10,12 +10,12 @@ try:
     from rasterio.transform import Affine, from_origin
     from shapely import geometry
 
-    QGIS_ENV = False
+    GDAL_ENV = False
 
 except:
     from osgeo import gdal
 
-    QGIS_ENV = True
+    GDAL_ENV = True
 
 
 def rasterise_gdf(gdf, geom_col, ht_col, bbox=None, pixel_size: int = 1):
@@ -41,7 +41,7 @@ def rasterise_gdf(gdf, geom_col, ht_col, bbox=None, pixel_size: int = 1):
 def check_path(path_str: str | Path, make_dir: bool = False) -> Path:
     # Ensure path exists
     path = Path(path_str).absolute()
-    if path.is_dir() and not path.exists():
+    if not path.exists() and not path.suffix:
         if make_dir:
             path.mkdir(parents=True, exist_ok=True)
         else:
@@ -55,7 +55,7 @@ def save_raster(
     # Save raster using GDAL or rasterio
     out_path = check_path(out_path_str, make_dir=True)
     height, width = data_arr.shape
-    if QGIS_ENV is False:
+    if GDAL_ENV is False:
         trf = Affine.from_gdal(*trf_arr)
         crs = pyproj.CRS.from_wkt(crs_wkt)
         with rasterio.open(
@@ -90,7 +90,7 @@ def load_raster(
     path = check_path(path_str, make_dir=False)
     if not path.exists():
         raise FileNotFoundError(f"Raster file {path} does not exist.")
-    if QGIS_ENV is False:
+    if GDAL_ENV is False:
         with rasterio.open(path) as dataset:
             crs_wkt = dataset.crs.to_wkt() if dataset.crs is not None else None
             dataset_bounds = dataset.bounds
@@ -139,7 +139,7 @@ def load_raster(
 
 def xy_to_lnglat(crs_wkt, x, y):
     """Convert x, y coordinates to longitude and latitude."""
-    if QGIS_ENV is False:
+    if GDAL_ENV is False:
         # Define the source and target CRS
         source_crs = pyproj.CRS(crs_wkt)
         target_crs = pyproj.CRS(4326)  # WGS 84
