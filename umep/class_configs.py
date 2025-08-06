@@ -49,6 +49,7 @@ class SvfData:
 class WeatherData:
     """Class to handle weather data loading and processing."""
 
+    YYYY: np.ndarray
     DOY: np.ndarray
     hours: np.ndarray
     minu: np.ndarray
@@ -60,20 +61,14 @@ class WeatherData:
     P: np.ndarray
     Ws: np.ndarray
 
-    def to_array(self) -> np.ndarray:
+    def to_date_arr(self) -> np.ndarray:
         """Convert weather data to a structured numpy array."""
         return np.array(
             [
+                self.YYYY,
                 self.DOY,
                 self.hours,
                 self.minu,
-                self.Ta,
-                self.RH,
-                self.radG,
-                self.radD,
-                self.radI,
-                self.P,
-                self.Ws,
             ]
         ).T
 

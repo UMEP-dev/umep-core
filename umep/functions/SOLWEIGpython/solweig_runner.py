@@ -33,6 +33,7 @@ def dict_to_namespace(d):
 def Tgmaps_v1(lc_grid, params):
     # Tgmaps_v1 Populates grids with cooeficients for Tg wave
     #   Detailed explanation goes here
+    lc_grid = np.copy(lc_grid)
     lc_grid[lc_grid >= 100] = 2
     id = np.unique(lc_grid)
     id = lc_grid[lc_grid <= 7].astype(int)
@@ -103,6 +104,7 @@ class SolweigRun:
         """Load weather data from a MET file."""
         met_data = np.loadtxt(self.config.met_path, skiprows=header_rows, delimiter=delim)
         return WeatherData(
+            YYYY=met_data[:, 0],
             DOY=met_data[:, 1],
             hours=met_data[:, 2],
             minu=met_data[:, 3],
@@ -201,8 +203,9 @@ class SolweigRun:
             weather_data = self.load_met_weather(header_rows=1, delim=" ")
 
         location = {"longitude": lng, "latitude": lat, "altitude": alt}
+        weather_date_arr = weather_data.to_date_arr()
         YYYY, altitude, azimuth, zen, jday, leafon, dectime, altmax = Solweig_2015a_metdata_noload(
-            weather_data.to_array(), location, int(self.config.utc)
+            weather_date_arr, location, int(self.config.utc)
         )
 
         # POIs check
@@ -338,7 +341,7 @@ class SolweigRun:
         if self.config.use_landcover:
             # Get land cover properties for Tg wave (land cover scheme based on Bogren et al. 2000, explained in Lindberg et al., 2008 and Lindberg, Onomura & Grimmond, 2016)
             [TgK, Tstart, alb_grid, emis_grid, TgK_wall, Tstart_wall, TmaxLST, TmaxLST_wall] = Tgmaps_v1(
-                lcgrid.copy(), self.params
+                lcgrid, self.params
             )
         else:
             TgK = Knight + self.params.Ts_deg.Value.Cobble_stone_2014a
