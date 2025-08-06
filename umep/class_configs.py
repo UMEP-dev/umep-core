@@ -90,9 +90,9 @@ class SolweigConfig:
     wa_path: Optional[str] = None
     use_epw_file: bool = False
     epw_path: Optional[str] = None
-    epw_start_date: Optional[str] = None
-    epw_end_date: Optional[str] = None
-    epw_hours: Optional[list[int]] = None
+    epw_start_date: Optional[str | list[int]] = None
+    epw_end_date: Optional[str | list[int]] = None
+    epw_hours: Optional[str | list[int]] = None
     met_path: Optional[str] = None
     cdsm_path: Optional[str] = None
     tdsm_path: Optional[str] = None
@@ -169,6 +169,19 @@ class SolweigConfig:
         if self.epw_path is not None:
             if self.epw_start_date is None or self.epw_end_date is None:
                 raise ValueError("EPW start and end dates must be provided if EPW path is set.")
+            # year,month,day,hour
+            # parse the start and end dates to lists
+            try:
+                start_date = [int(x) for x in self.epw_start_date.split(",")]
+                end_date = [int(x) for x in self.epw_end_date.split(",")]
+                if len(start_date) != 4 or len(end_date) != 4:
+                    raise ValueError("EPW start and end dates must be in the format: year,month,day,hour")
+            except ValueError as err:
+                raise ValueError(f"Invalid EPW date format: {self.epw_start_date} or {self.epw_end_date}") from err
             if self.epw_hours is None:
                 self.epw_hours = list(range(24))  # Default to all hours if not specified
+            elif isinstance(self.epw_hours, str):
+                self.epw_hours = [int(h) for h in self.epw_hours.split(",")]
+            if not all(0 <= h < 24 for h in self.epw_hours):
+                raise ValueError("EPW hours must be between 0 and 23.")
         # Add more validation as needed
