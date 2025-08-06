@@ -106,17 +106,21 @@ class SolweigRunCore(SolweigRun):
     def load_epw_weather(self) -> WeatherData:
         """Load weather data from an EPW file."""
         epw_df, epw_info = read_epw(self.config.epw_path)
+        # Get timezone from epw_df index if present
+        tz = epw_df.index.tz
         start_date = pd.Timestamp(
             year=self.config.epw_start_date[0],
             month=self.config.epw_start_date[1],
             day=self.config.epw_start_date[2],
             hour=self.config.epw_start_date[3],
+            tzinfo=tz,
         )
         end_date = pd.Timestamp(
             year=self.config.epw_end_date[0],
             month=self.config.epw_end_date[1],
             day=self.config.epw_end_date[2],
             hour=self.config.epw_end_date[3],
+            tzinfo=tz,
         )
         # Filter by date range
         filtered_df = epw_df.loc[start_date:end_date]
