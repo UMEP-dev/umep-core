@@ -50,7 +50,7 @@ if not Path.exists(working_path / "DSM.tif") or not Path.exists(working_path / "
         pixel_size=pixel_resolution,
     )
     # save to geotiff
-    common.save_raster(working_path_str + "/DSM.tif", bldgs_rast, bldgs_transf, bldgs_gdf.crs)
+    common.save_raster(working_path_str + "/DSM.tif", bldgs_rast, bldgs_transf.to_gdal(), bldgs_gdf.crs.to_wkt())
     # GDF1 trees - load and buffer by diameter
     trees_gdf = gpd.read_file(trees_path)
     trees_gdf = trees_gdf.to_crs(working_crs)
@@ -79,7 +79,7 @@ if not Path.exists(working_path / "DSM.tif") or not Path.exists(working_path / "
     # flatten canopy raster where overlapping buildings
     veg_rast[bldgs_rast > 0] = 0
     # save
-    common.save_raster(working_path_str + "/CDSM.tif", veg_rast, veg_transf, trees_gdf.crs)
+    common.save_raster(working_path_str + "/CDSM.tif", veg_rast, veg_transf.to_gdal(), trees_gdf.crs.to_wkt())
 
 # %%
 # wall info for SOLWEIG
