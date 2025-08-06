@@ -172,9 +172,9 @@ class SolweigConfig:
             # year,month,day,hour
             # parse the start and end dates to lists
             try:
-                start_date = [int(x) for x in self.epw_start_date.split(",")]
-                end_date = [int(x) for x in self.epw_end_date.split(",")]
-                if len(start_date) != 4 or len(end_date) != 4:
+                self.epw_start_date = [int(x) for x in self.epw_start_date.split(",")]
+                self.epw_end_date = [int(x) for x in self.epw_end_date.split(",")]
+                if len(self.epw_start_date) != 4 or len(self.epw_end_date) != 4:
                     raise ValueError("EPW start and end dates must be in the format: year,month,day,hour")
             except ValueError as err:
                 raise ValueError(f"Invalid EPW date format: {self.epw_start_date} or {self.epw_end_date}") from err
