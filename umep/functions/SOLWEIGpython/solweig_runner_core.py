@@ -7,7 +7,8 @@ from pvlib.iotools import read_epw
 from rasterio.transform import Affine, rowcol
 from tqdm import tqdm
 
-from ...class_configs import SolweigConfig, WeatherData
+from ... import common
+from ...class_configs import EnvironData, SolweigConfig
 from .solweig_runner import SolweigRun
 
 
@@ -17,7 +18,7 @@ class SolweigRunCore(SolweigRun):
     def __init__(self, config_path_str: str, params_json_path: str):
         config = SolweigConfig()
         config.from_file(config_path_str)
-        super().__init__(config, params_json_path, qgis_env=False)
+        super().__init__(config, params_json_path)
 
     def prep_progress(self, num: int) -> None:
         """Prepare progress for environment."""
@@ -103,9 +104,10 @@ class SolweigRunCore(SolweigRun):
         # GPD doesn't handle multi-index
         woi_gdf.to_file(self.config.output_dir + "/WOI.gpkg", driver="GPKG")
 
-    def load_epw_weather(self) -> WeatherData:
+    def load_epw_weather(self) -> EnvironData:
         """Load weather data from an EPW file."""
-        epw_df, epw_info = read_epw(self.config.epw_path)
+        epw_path_str = str(common.check_path(self.config.epw_path))
+        epw_df, epw_info = read_epw(epw_path_str)
         # Get timezone from epw_df index if present
         tz = epw_df.index.tz
         start_date = pd.Timestamp(
@@ -167,7 +169,10 @@ class SolweigRunCore(SolweigRun):
         # use -999 for NaN to mesh with UMEP
         umep_df = umep_df.fillna(-999)
 
-        return WeatherData(
+        return EnvironData(
+            self.config,
+            self.params,
+            YYYY=umep_df["iy"].to_numpy(),
             DOY=umep_df["id"].to_numpy(),
             hours=umep_df["it"].to_numpy(),
             minu=umep_df["imin"].to_numpy(),
@@ -178,4 +183,6 @@ class SolweigRunCore(SolweigRun):
             radI=umep_df["Kdiff"].to_numpy(),
             P=umep_df["pres"].to_numpy() / 100.0,  # convert from Pa to hPa,
             Ws=umep_df["Wind"].to_numpy(),
+            location=self.location,
+            UTC=self.config.utc,
         )

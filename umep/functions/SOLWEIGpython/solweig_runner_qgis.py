@@ -12,7 +12,7 @@ class SolweigRunQgis(SolweigRun):
         """ """
         config = SolweigConfig()
         config.from_file(config_path_str)
-        super().__init__(config, params_json_path, qgis_env=True)
+        super().__init__(config, params_json_path)
         self.progress = feedback
 
     def prep_progress(self, num: int) -> None:
