@@ -208,6 +208,8 @@ class SolweigConfig:
                 self.epw_hours = [int(h) for h in self.epw_hours.split(",")]
             if not all(0 <= h < 24 for h in self.epw_hours):
                 raise ValueError("EPW hours must be between 0 and 23.")
+        if self.use_landcover and self.lc_path is None:
+            raise ValueError("Land cover path must be set if use_landcover is True.")
         # Add more validation as needed
 
 
@@ -316,8 +318,8 @@ class EnvironData:
             self.altmax[i] = sunmaximum
             # Calculate sun position
             half = datetime.timedelta(days=halftimestepdec)
-            H = datetime.timedelta(hours=self.hours[i])
-            M = datetime.timedelta(minutes=self.minu[i])
+            H = datetime.timedelta(hours=int(self.hours[i]))
+            M = datetime.timedelta(minutes=int(self.minu[i]))
             YMDHM = YMD + H + M - half
             time["year"] = YMDHM.year
             time["month"] = YMDHM.month

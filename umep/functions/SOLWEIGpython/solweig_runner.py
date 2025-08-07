@@ -259,6 +259,40 @@ class SolweigRun:
         else:
             dsmraise = 0
 
+        # DEM
+        # TODO: Is DEM always provided?
+        dem, _, _, dem_nd_val = common.load_raster(self.config.dem_path, bbox=None)
+        dem[dem == dem_nd_val] = 0.0
+        # TODO: Check if this is needed re DSM ramifications
+        if dem.min() < 0:
+            demraise = np.abs(dem.min())
+            dem = dem + demraise
+
+        # Buildings from land cover option
+        # TODO: Check intended logic here
+        if not self.config.use_dem_for_buildings and self.config.use_landcover:
+            # Create building boolean raster from either land cover if no DEM is used
+            buildings = np.copy(lcgrid)
+            buildings[buildings == 7] = 1
+            buildings[buildings == 6] = 1
+            buildings[buildings == 5] = 1
+            buildings[buildings == 4] = 1
+            buildings[buildings == 3] = 1
+            buildings[buildings == 2] = 0
+        else:
+            buildings = self.dsm_arr - dem
+            buildings[buildings < 2.0] = 1.0
+            buildings[buildings >= 2.0] = 0.0
+        # Save buildings raster if requested
+        if self.config.save_buildings:
+            common.save_raster(
+                self.config.output_dir + "/buildings.tif",
+                buildings,
+                dsm_trf_arr,
+                dsm_crs_wkt,
+                dsm_nd_val,
+            )
+
         # Vegetation
         if self.config.use_veg_dem:
             vegdsm, _, _, _ = common.load_raster(self.config.cdsm_path, bbox=None)
@@ -270,21 +304,31 @@ class SolweigRun:
             vegdsm = None
             vegdsm2 = None
 
+        if self.config.use_veg_dem:
+            # amaxvalue
+            vegmax = vegdsm.max()
+            amaxvalue = self.dsm_arr.max() - self.dsm_arr.min()
+            amaxvalue = np.maximum(amaxvalue, vegmax)
+            # Elevation vegdsms if buildingDEM includes ground heights
+            vegdsm = vegdsm + self.dsm_arr
+            vegdsm[vegdsm == self.dsm_arr] = 0
+            vegdsm2 = vegdsm2 + self.dsm_arr
+            vegdsm2[vegdsm2 == self.dsm_arr] = 0
+            # % Bush separation
+            bush = np.logical_not(vegdsm2 * vegdsm) * vegdsm
+            svfbuveg = svf_data.svf - (1.0 - svf_data.svf_veg) * (
+                1.0 - self.params.Tree_settings.Value.Transmissivity
+            )  # % major bug fixed 20141203
+        else:
+            svfbuveg = svf_data.svf
+            bush = np.zeros([self.rows, self.cols])
+            amaxvalue = 0
+
         # Land cover
         if self.config.use_landcover:
             lcgrid, _, _, _ = common.load_raster(self.config.lc_path, bbox=None)
         else:
             lcgrid = None
-
-        # DEM for buildings
-        if self.config.use_dem_for_buildings:
-            dem, _, _, dem_nd_val = common.load_raster(self.config.dem_path, bbox=None)
-            dem[dem == dem_nd_val] = 0.0
-            if dem.min() < 0:
-                demraise = np.abs(dem.min())
-                dem = dem + demraise
-            else:
-                demraise = 0
 
         # Load SVF data
         svf_data = SvfData(self.config)
@@ -314,49 +358,6 @@ class SolweigRun:
         if first == 0.0:
             first = 1.0
         second = np.round(posture.height * 20.0)
-
-        if self.config.use_veg_dem:
-            # amaxvalue
-            vegmax = vegdsm.max()
-            amaxvalue = self.dsm_arr.max() - self.dsm_arr.min()
-            amaxvalue = np.maximum(amaxvalue, vegmax)
-            # Elevation vegdsms if buildingDEM includes ground heights
-            vegdsm = vegdsm + self.dsm_arr
-            vegdsm[vegdsm == self.dsm_arr] = 0
-            vegdsm2 = vegdsm2 + self.dsm_arr
-            vegdsm2[vegdsm2 == self.dsm_arr] = 0
-            # % Bush separation
-            bush = np.logical_not(vegdsm2 * vegdsm) * vegdsm
-            svfbuveg = svf_data.svf - (1.0 - svf_data.svf_veg) * (
-                1.0 - self.params.Tree_settings.Value.Transmissivity
-            )  # % major bug fixed 20141203
-        else:
-            svfbuveg = svf_data.svf
-            bush = np.zeros([self.rows, self.cols])
-            amaxvalue = 0
-
-        # Create building boolean raster from either land cover or height rasters
-        if not self.config.use_dem_for_buildings:
-            buildings = np.copy(lcgrid)
-            buildings[buildings == 7] = 1
-            buildings[buildings == 6] = 1
-            buildings[buildings == 5] = 1
-            buildings[buildings == 4] = 1
-            buildings[buildings == 3] = 1
-            buildings[buildings == 2] = 0
-        else:
-            buildings = self.dsm_arr - dem
-            buildings[buildings < 2.0] = 1.0
-            buildings[buildings >= 2.0] = 0.0
-
-        if self.config.save_buildings:
-            common.save_raster(
-                self.config.output_dir + "/buildings.tif",
-                buildings,
-                dsm_trf_arr,
-                dsm_crs_wkt,
-                dsm_nd_val,
-            )
 
         # Import shadow matrices (Anisotropic sky)
         shadow_mats = ShadowMatrices(self.config, self.params, self.rows, self.cols, svf_data)

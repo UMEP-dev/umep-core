@@ -34,7 +34,8 @@ class SolweigRunCore(SolweigRun):
 
     def load_poi_data(self, trf_arr: list[float]) -> tuple[Any, Any]:
         """Load points of interest (POIs) from a file."""
-        pois_gdf = gpd.read_file(self.config.poi_file)
+        poi_path_str = str(common.check_path(self.config.poi_path))
+        pois_gdf = gpd.read_file(poi_path_str)
         trf = Affine.from_gdal(*trf_arr)
         self.poi_pixel_xys = np.zeros((len(pois_gdf), 3)) - 999
         self.poi_names = []
