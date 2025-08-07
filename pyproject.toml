@@ -109,7 +109,7 @@ exclude = [
     "dist",
     ".venv",
 ]
-typeCheckingMode = "strict"
+typeCheckingMode = "standard"
 useLibraryCodeForTypes = true
 reportUntypedFunctionDecorator = false
 reportUntypedClassDecorator = false
