@@ -315,6 +315,9 @@ class SolweigRun:
             vegdsm = None
             vegdsm2 = None
 
+        # Load SVF data
+        svf_data = SvfData(self.config)
+
         if self.config.use_veg_dem:
             # amaxvalue
             vegmax = vegdsm.max()
@@ -334,9 +337,6 @@ class SolweigRun:
             svfbuveg = svf_data.svf
             bush = np.zeros([self.rows, self.cols])
             amaxvalue = 0
-
-        # Load SVF data
-        svf_data = SvfData(self.config)
 
         # Load walls
         wallheight, _, _, _ = common.load_raster(self.config.wh_path, bbox=None)
