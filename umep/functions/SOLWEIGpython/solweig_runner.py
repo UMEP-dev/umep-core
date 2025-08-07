@@ -270,9 +270,16 @@ class SolweigRun:
                 demraise = np.abs(dem.min())
                 dem = dem + demraise
 
+        # Land cover
+        if self.config.use_landcover:
+            lc_path_str = str(common.check_path(self.config.lc_path))
+            lcgrid, _, _, _ = common.load_raster(lc_path_str, bbox=None)
+        else:
+            lcgrid = None
+
         # Buildings from land cover option
         # TODO: Check intended logic here
-        if not self.config.use_dem_for_buildings and self.config.use_landcover:
+        if not self.config.use_dem_for_buildings and lcgrid is not None:
             # Create building boolean raster from either land cover if no DEM is used
             buildings = np.copy(lcgrid)
             buildings[buildings == 7] = 1
@@ -327,12 +334,6 @@ class SolweigRun:
             svfbuveg = svf_data.svf
             bush = np.zeros([self.rows, self.cols])
             amaxvalue = 0
-
-        # Land cover
-        if self.config.use_landcover:
-            lcgrid, _, _, _ = common.load_raster(self.config.lc_path, bbox=None)
-        else:
-            lcgrid = None
 
         # Load SVF data
         svf_data = SvfData(self.config)
