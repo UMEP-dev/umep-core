@@ -210,6 +210,10 @@ class SolweigConfig:
                 raise ValueError("EPW hours must be between 0 and 23.")
         if self.use_landcover and self.lc_path is None:
             raise ValueError("Land cover path must be set if use_landcover is True.")
+        if self.use_dem_for_buildings and self.dem_path is None:
+            raise ValueError("DEM path must be set if use_dem_for_buildings is True.")
+        if not self.use_landcover and not self.use_dem_for_buildings:
+            raise ValueError("Either use_landcover or use_dem_for_buildings must be True.")
         # Add more validation as needed
 
 

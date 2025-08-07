@@ -261,12 +261,14 @@ class SolweigRun:
 
         # DEM
         # TODO: Is DEM always provided?
-        dem, _, _, dem_nd_val = common.load_raster(self.config.dem_path, bbox=None)
-        dem[dem == dem_nd_val] = 0.0
-        # TODO: Check if this is needed re DSM ramifications
-        if dem.min() < 0:
-            demraise = np.abs(dem.min())
-            dem = dem + demraise
+        if self.config.dem_path:
+            dem_path_str = str(common.check_path(self.config.dem_path))
+            dem, _, _, dem_nd_val = common.load_raster(dem_path_str, bbox=None)
+            dem[dem == dem_nd_val] = 0.0
+            # TODO: Check if this is needed re DSM ramifications
+            if dem.min() < 0:
+                demraise = np.abs(dem.min())
+                dem = dem + demraise
 
         # Buildings from land cover option
         # TODO: Check intended logic here
@@ -279,10 +281,12 @@ class SolweigRun:
             buildings[buildings == 4] = 1
             buildings[buildings == 3] = 1
             buildings[buildings == 2] = 0
-        else:
+        elif self.config.use_dem_for_buildings:
             buildings = self.dsm_arr - dem
             buildings[buildings < 2.0] = 1.0
             buildings[buildings >= 2.0] = 0.0
+        else:
+            raise ValueError("No DEM or buildings data available.")
         # Save buildings raster if requested
         if self.config.save_buildings:
             common.save_raster(
