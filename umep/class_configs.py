@@ -147,6 +147,7 @@ class SolweigConfig:
     output_kdiff: bool = True
     output_tree_planter: bool = True
     wall_netcdf: bool = False
+    plot_poi_patches: bool = False
 
     def to_file(self, file_path: str):
         """Save configuration to a file."""
@@ -218,6 +219,8 @@ class SolweigConfig:
             raise ValueError("Anisotropic sky path must be set if use_aniso is True.")
         if self.use_wall_scheme and self.wall_path is None:
             raise ValueError("Wall scheme path must be set if use_wall_scheme is True.")
+        if self.plot_poi_patches and (not self.use_aniso or not self.poi_path):
+            raise ValueError("POI path and use_aniso must be set if plot_poi_patches is True.")
         # Add more validation as needed
 
 

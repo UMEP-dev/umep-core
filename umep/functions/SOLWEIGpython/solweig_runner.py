@@ -1,8 +1,20 @@
 import json
+import logging
 from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# handle for QGIS which does not have matplotlib by default?
+try:
+    from matplotlib import pyplot as plt
+
+    PLT = True
+except ImportError:
+    PLT = False
 
 from ... import common
 from ...class_configs import EnvironData, ShadowMatrices, SolweigConfig, SvfData, TgMaps, WallsData
@@ -11,7 +23,6 @@ from . import PET_calculations
 from . import Solweig_2025a_calc_forprocessing as so
 from . import UTCI_calculations as utci
 from .CirclePlotBar import PolarBarPlot
-from .patch_characteristics import hemispheric_image
 from .wallsAsNetCDF import walls_as_netcdf
 
 
@@ -108,6 +119,59 @@ class SolweigRun:
     def save_woi_results(self, trf_arr: list[float], crs_wkt: str) -> None:
         """Save results for walls of interest (WOIs) to files."""
         raise NotImplementedError("This method should be implemented in subclasses.")
+
+    def hemispheric_image(
+        self,
+        sh: np.ndarray,
+        vegsh: np.ndarray,
+        vbshvegsh: np.ndarray,
+        voxelmat: np.ndarray | None = None,
+    ):
+        """
+        Calculate patch characteristics for points of interest (POIs).
+        This method is vectorized for efficiency as it processes all POIs simultaneously.
+        """
+        n_patches = sh.shape[2]
+        n_pois = self.poi_pixel_xys.shape[0]
+        patch_characteristics = np.zeros((n_patches, n_pois))
+
+        # Get POI indices as integer arrays
+        poi_y = self.poi_pixel_xys[:, 2].astype(int)
+        poi_x = self.poi_pixel_xys[:, 1].astype(int)
+
+        for idy in range(n_patches):
+            # Precompute masks for this patch
+            temp_sky = (sh[:, :, idy] == 1) & (vegsh[:, :, idy] == 1)
+            temp_vegsh = (vegsh[:, :, idy] == 0) | (vbshvegsh[:, :, idy] == 0)
+            temp_vbsh = (1 - sh[:, :, idy]) * vbshvegsh[:, :, idy]
+            temp_sh = temp_vbsh == 1
+
+            if self.config.use_wall_scheme:
+                temp_sh_w = temp_sh * voxelmat[:, :, idy]
+                temp_sh_roof = temp_sh * (voxelmat[:, :, idy] == 0)
+            else:
+                temp_sh_w = None
+                temp_sh_roof = None
+
+            # Gather mask values for all POIs at once
+            sky_vals = temp_sky[poi_y, poi_x]
+            veg_vals = temp_vegsh[poi_y, poi_x]
+            sh_vals = temp_sh[poi_y, poi_x]
+
+            if self.config.use_wall_scheme:
+                sh_w_vals = temp_sh_w[poi_y, poi_x]
+                sh_roof_vals = temp_sh_roof[poi_y, poi_x]
+
+            # Assign patch characteristics in vectorized way
+            patch_characteristics[idy, sky_vals] = 1.8
+            patch_characteristics[idy, ~sky_vals & veg_vals] = 2.5
+            if self.config.use_wall_scheme:
+                patch_characteristics[idy, ~sky_vals & ~veg_vals & sh_vals & sh_w_vals] = 4.5
+                patch_characteristics[idy, ~sky_vals & ~veg_vals & sh_vals & ~sh_w_vals & sh_roof_vals] = 4.5
+            else:
+                patch_characteristics[idy, ~sky_vals & ~veg_vals & sh_vals] = 4.5
+
+        return patch_characteristics
 
     def calc_solweig(
         self,
@@ -238,8 +302,11 @@ class SolweigRun:
 
     def run(self) -> None:
         """Run the SOLWEIG algorithm."""
+        logger.info("Starting SOLWEIG run")
+
         # Load DSM
         self.dsm_arr, dsm_trf_arr, dsm_crs_wkt, dsm_nd_val = common.load_raster(self.config.dsm_path, bbox=None)
+        logger.info("DSM loaded from %s", self.config.dsm_path)
         self.scale = 1 / dsm_trf_arr[1]
         self.rows = self.dsm_arr.shape[0]
         self.cols = self.dsm_arr.shape[1]
@@ -264,6 +331,7 @@ class SolweigRun:
         if self.config.dem_path:
             dem_path_str = str(common.check_path(self.config.dem_path))
             dem, _, _, dem_nd_val = common.load_raster(dem_path_str, bbox=None)
+            logger.info("DEM loaded from %s", self.config.dem_path)
             dem[dem == dem_nd_val] = 0.0
             # TODO: Check if this is needed re DSM ramifications
             if dem.min() < 0:
@@ -274,6 +342,7 @@ class SolweigRun:
         if self.config.use_landcover:
             lc_path_str = str(common.check_path(self.config.lc_path))
             lcgrid, _, _, _ = common.load_raster(lc_path_str, bbox=None)
+            logger.info("Land cover loaded from %s", self.config.lc_path)
         else:
             lcgrid = None
 
@@ -303,12 +372,15 @@ class SolweigRun:
                 dsm_crs_wkt,
                 dsm_nd_val,
             )
+            logger.info("Buildings raster saved to %s/buildings.tif", self.config.output_dir)
 
         # Vegetation
         if self.config.use_veg_dem:
             vegdsm, _, _, _ = common.load_raster(self.config.cdsm_path, bbox=None)
+            logger.info("Vegetation DSM loaded from %s", self.config.cdsm_path)
             if self.config.tdsm_path:
                 vegdsm2, _, _, _ = common.load_raster(self.config.tdsm_path, bbox=None)
+                logger.info("Tree DSM loaded from %s", self.config.tdsm_path)
             else:
                 vegdsm2 = vegdsm * self.params.Tree_settings.Value.Trunk_ratio
         else:
@@ -317,6 +389,7 @@ class SolweigRun:
 
         # Load SVF data
         svf_data = SvfData(self.config)
+        logger.info("SVF data loaded")
 
         if self.config.use_veg_dem:
             # amaxvalue
@@ -341,16 +414,20 @@ class SolweigRun:
         # Load walls
         wallheight, _, _, _ = common.load_raster(self.config.wh_path, bbox=None)
         wallaspect, _, _, _ = common.load_raster(self.config.wa_path, bbox=None)
+        logger.info("Wall rasters loaded")
 
         # weather data
         if self.config.use_epw_file:
             environ_data = self.load_epw_weather()
+            logger.info("Weather data loaded from EPW file")
         else:
             environ_data = self.load_met_weather(header_rows=1, delim=" ")
+            logger.info("Weather data loaded from MET file")
 
         # POIs check
         if self.config.poi_path:
             self.load_poi_data(dsm_trf_arr)
+            logger.info("POI data loaded from %s", self.config.poi_path)
 
         # Posture settings
         if self.params.Tmrt_params.Value.posture == "Standing":
@@ -366,14 +443,17 @@ class SolweigRun:
 
         # Import shadow matrices (Anisotropic sky)
         shadow_mats = ShadowMatrices(self.config, self.params, self.rows, self.cols, svf_data)
+        logger.info("Shadow matrices initialized")
 
         # % Ts parameterisation maps
         tg_maps = TgMaps(self.config.use_landcover, lcgrid, self.params, self.rows, self.cols)
+        logger.info("TgMaps initialized")
 
         # Import data for wall temperature parameterization
         # Use wall of interest
         if self.config.woi_path:
             self.load_woi_data(dsm_trf_arr)
+            logger.info("WOI data loaded from %s", self.config.woi_path)
         walls_data = WallsData(
             self.config,
             self.params,
@@ -385,6 +465,7 @@ class SolweigRun:
             self.dsm_arr,
             lcgrid,
         )
+        logger.info("WallsData initialized")
 
         # Initialisation of time related variables
         if environ_data.Ta.__len__() == 1:
@@ -396,14 +477,13 @@ class SolweigRun:
 
         # Save hemispheric image
         if self.config.use_aniso and self.poi_pixel_xys is not None:
-            patch_characteristics = hemispheric_image(
-                self.poi_pixel_xys,
+            patch_characteristics = self.hemispheric_image(
                 shadow_mats.shmat,
                 shadow_mats.vegshmat,
                 shadow_mats.vbshvegshmat,
                 walls_data.voxelMaps,
-                self.config.use_wall_scheme,
             )
+            logger.info("Hemispheric image calculated for POIs")
 
         # Initiate array for I0 values plotting
         if np.unique(environ_data.DOY).shape[0] > 1:
@@ -414,11 +494,14 @@ class SolweigRun:
             first_unique_day = environ_data.DOY.copy()
             I0_array = np.zeros_like(environ_data.DOY)
         # For Tmrt plot
+        # For Tmrt plot
         tmrtplot = np.zeros((self.rows, self.cols))
+        # Number of iterations
         # Number of iterations
         num = len(environ_data.Ta)
         # Prepare progress tracking
         self.prep_progress(num)
+        logger.info("Progress tracking prepared for %d iterations", num)
         # TODO: confirm intent of water temperature handling
         # Assuming it should be initialized to NaN outside the loop so that it can be updated at the start of each day
         Twater = np.nan
@@ -539,7 +622,7 @@ class SolweigRun:
             # Save I0 for I0 vs. Kdown output plot to check if UTC is off
             if i < first_unique_day.shape[0]:
                 I0_array[i] = I0
-            elif i == first_unique_day.shape[0]:
+            elif i == first_unique_day.shape[0] and PLT is True:
                 # Output I0 vs. Kglobal plot
                 radG_for_plot = environ_data.radG[first_unique_day[0] == environ_data.DOY]
                 dectime_for_plot = environ_data.dectime[first_unique_day[0] == environ_data.DOY]
@@ -759,7 +842,13 @@ class SolweigRun:
                 )
 
             # Sky view image of patches
-            if (self.config.use_aniso) and (i == 0) and (self.poi_pixel_xys is not None):
+            if (
+                i == 0
+                and PLT is True
+                and self.config.plot_poi_patches
+                and self.config.use_aniso
+                and self.poi_pixel_xys is not None
+            ):
                 for k in range(self.poi_pixel_xys.shape[0]):
                     Lsky_patch_characteristics[:, 2] = patch_characteristics[:, k]
                     skyviewimage_out = self.config.output_dir + "/POI_" + str(self.poi_names[k]) + ".png"
