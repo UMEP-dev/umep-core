@@ -759,7 +759,7 @@ class SolweigRun:
                 )
 
             # Sky view image of patches
-            if (self.config.aniso_path) and (i == 0) and (self.poi_pixel_xys is not None):
+            if (self.config.use_aniso) and (i == 0) and (self.poi_pixel_xys is not None):
                 for k in range(self.poi_pixel_xys.shape[0]):
                     Lsky_patch_characteristics[:, 2] = patch_characteristics[:, k]
                     skyviewimage_out = self.config.output_dir + "/POI_" + str(self.poi_names[k]) + ".png"

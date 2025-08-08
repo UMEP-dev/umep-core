@@ -214,6 +214,8 @@ class SolweigConfig:
             raise ValueError("DEM path must be set if use_dem_for_buildings is True.")
         if not self.use_landcover and not self.use_dem_for_buildings:
             raise ValueError("Either use_landcover or use_dem_for_buildings must be True.")
+        if self.use_aniso and self.aniso_path is None:
+            raise ValueError("Anisotropic sky path must be set if use_aniso is True.")
         # Add more validation as needed
 
 
