@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, List, Tuple
 
 import geopandas as gpd
 import numpy as np
@@ -32,7 +32,7 @@ class SolweigRunCore(SolweigRun):
         self.progress.update(1)
         return True
 
-    def load_poi_data(self, trf_arr: list[float]) -> tuple[Any, Any]:
+    def load_poi_data(self, trf_arr: List[float]) -> Tuple[Any, Any]:
         """Load points of interest (POIs) from a file."""
         poi_path_str = str(common.check_path(self.config.poi_path))
         pois_gdf = gpd.read_file(poi_path_str)
@@ -44,7 +44,7 @@ class SolweigRunCore(SolweigRun):
             y, x = rowcol(trf, row["geometry"].centroid.x, row["geometry"].centroid.y)
             self.poi_pixel_xys[n] = (n, x, y)
 
-    def save_poi_results(self, trf_arr: list[float], crs_wkt: str) -> None:
+    def save_poi_results(self, trf_arr: List[float], crs_wkt: str) -> None:
         """Save points of interest (POIs) results to a file."""
         # Convert pixel coordinates to geographic coordinates
         xs = [r["col_idx"] * trf_arr[1] + trf_arr[0] for r in self.poi_results]
@@ -71,7 +71,7 @@ class SolweigRunCore(SolweigRun):
         # GPD doesn't handle multi-index
         pois_gdf.to_file(self.config.output_dir + "/POI.gpkg", driver="GPKG")
 
-    def load_woi_data(self, trf_arr: list[float]) -> tuple[Any, Any]:
+    def load_woi_data(self, trf_arr: List[float]) -> Tuple[Any, Any]:
         """Load walls of interest (WOIs) from a file."""
         woi_gdf = gpd.read_file(self.config.woi_file)
         trf = Affine.from_gdal(*trf_arr)
@@ -82,14 +82,16 @@ class SolweigRunCore(SolweigRun):
             y, x = rowcol(trf, row["geometry"].centroid.x, row["geometry"].centroid.y)
             self.woi_pixel_xys[n] = (n, x, y)
 
-    def save_woi_results(self, trf_arr: list[float], crs_wkt: str) -> None:
+    def save_woi_results(self, trf_arr: List[float], crs_wkt: str) -> None:
         """Save walls of interest (WOIs) results to a file."""
         # Convert pixel coordinates to geographic coordinates
+        xs = [r["col_idx"] * trf_arr[1] + trf_arr[0] for r in self.woi_results]
+        ys = [r["row_idx"] * trf_arr[1] + trf_arr[3] for r in self.woi_results]
         woi_gdf = gpd.GeoDataFrame(
             self.woi_results,
             geometry=gpd.points_from_xy(
-                self.woi_pixel_xys[:, 1] * trf_arr[1] + trf_arr[0],
-                self.woi_pixel_xys[:, 2] * trf_arr[1] + trf_arr[3],
+                xs,
+                ys,
             ),
             crs=crs_wkt,
         )

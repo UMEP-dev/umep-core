@@ -1,7 +1,7 @@
 import datetime
 import zipfile
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Union
 
 import numpy as np
 
@@ -30,10 +30,8 @@ class TgMaps:
     emis_grid: np.ndarray
     TgK_wall: float
     Tstart_wall: float
-    # TODO: check if this should be a float - original conflict in use_landcover option
-    TmaxLST: np.ndarray | float
+    TmaxLST: Union[np.ndarray, float]
     TmaxLST_wall: float
-    # maps
     Knight: np.ndarray
     Tgmap1: np.ndarray
     Tgmap1E: np.ndarray
@@ -42,7 +40,7 @@ class TgMaps:
     Tgmap1N: np.ndarray
     TgOut1: np.ndarray
 
-    def __init__(self, use_landcover: bool, lc_grid: np.ndarray | None, model_params, rows: int, cols: int):
+    def __init__(self, use_landcover: bool, lc_grid: Optional[np.ndarray], model_params, rows: int, cols: int):
         """
         This is a vectorized version that avoids looping over pixels.
         """
@@ -113,9 +111,9 @@ class SolweigConfig:
     wa_path: Optional[str] = None
     use_epw_file: bool = False
     epw_path: Optional[str] = None
-    epw_start_date: Optional[str | list[int]] = None
-    epw_end_date: Optional[str | list[int]] = None
-    epw_hours: Optional[str | list[int]] = None
+    epw_start_date: Optional[str] = None
+    epw_end_date: Optional[str] = None
+    epw_hours: Optional[str] = None
     met_path: Optional[str] = None
     cdsm_path: Optional[str] = None
     tdsm_path: Optional[str] = None
@@ -156,7 +154,7 @@ class SolweigConfig:
                 value = getattr(self, key)
                 if value is None:
                     value = ""  # Default to empty string if None
-                if isinstance(self.__annotations__[key], bool):
+                if type(self).__annotations__[key] == bool:
                     f.write(f"{key}={int(value)}\n")
                 else:
                     f.write(f"{key}={value}\n")
@@ -197,8 +195,10 @@ class SolweigConfig:
             # year,month,day,hour
             # parse the start and end dates to lists
             try:
-                self.epw_start_date = [int(x) for x in self.epw_start_date.split(",")]
-                self.epw_end_date = [int(x) for x in self.epw_end_date.split(",")]
+                if isinstance(self.epw_start_date, str):
+                    self.epw_start_date = [int(x) for x in self.epw_start_date.split(",")]
+                if isinstance(self.epw_end_date, str):
+                    self.epw_end_date = [int(x) for x in self.epw_end_date.split(",")]
                 if len(self.epw_start_date) != 4 or len(self.epw_end_date) != 4:
                     raise ValueError("EPW start and end dates must be in the format: year,month,day,hour")
             except ValueError as err:
@@ -416,8 +416,8 @@ class SvfData:
             self.svf_veg, _, _, _ = common.load_raster(in_path_str + "/" + "svfveg.tif")
             self.svf_veg_east, _, _, _ = common.load_raster(in_path_str + "/" + "svfEveg.tif")
             self.svf_veg_south, _, _, _ = common.load_raster(in_path_str + "/" + "svfSveg.tif")
-            self.svf_veg_west, _, _, _ = common.load_raster(in_path_str + "/" + "svfWveg.tif")
-            self.svf_veg_north, _, _, _ = common.load_raster(in_path_str + "/" + "svfNveg.tif")
+            self.svf_veg_west, _, _, _ = common.load_raster(in_path_str + "/" + "svfWaveg.tif")
+            self.svf_veg_north, _, _, _ = common.load_raster(in_path_str + "/" + "svfNaveg.tif")
             self.svf_veg_blocks_bldg_sh, _, _, _ = common.load_raster(in_path_str + "/" + "svfaveg.tif")
             self.svf_veg_blocks_bldg_sh_east, _, _, _ = common.load_raster(in_path_str + "/" + "svfEaveg.tif")
             self.svf_veg_blocks_bldg_sh_south, _, _, _ = common.load_raster(in_path_str + "/" + "svfSaveg.tif")

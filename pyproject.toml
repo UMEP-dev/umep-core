@@ -1,6 +1,6 @@
 [project]
 name = "umep"
-version = "0.0.1b18"
+version = "0.0.1b19"
 description = "urban multi-scale environmental predictor"
 readme = "README.md"
 requires-python = ">=3.9, <3.14"
@@ -97,7 +97,7 @@ docstring-code-format = true
 docstring-code-line-length = "dynamic"
 
 [tool.pyright]
-pythonVersion = "3.11"
+pythonVersion = "3.9"
 include = ["umep"]
 exclude = [
     "**/__pycache__",

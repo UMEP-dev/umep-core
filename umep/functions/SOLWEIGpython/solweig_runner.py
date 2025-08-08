@@ -1,7 +1,7 @@
 import json
 import logging
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
@@ -45,15 +45,15 @@ class SolweigRun:
         self.config.validate()
         # Progress tracking settings
         self.progress = None
-        self.iters_total: int | None = None
+        self.iters_total: Optional[int] = None
         self.iters_count: int = 0
         # Initialize POI data
-        self.poi_names: list[Any] = []
-        self.poi_pixel_xys: np.ndarray | None = None
+        self.poi_names: List[Any] = []
+        self.poi_pixel_xys: Optional[np.ndarray] = None
         self.poi_results = []
         # Initialize WOI data
-        self.woi_names: list[Any] = []
-        self.woi_pixel_xys: np.ndarray | None = None
+        self.woi_names: List[Any] = []
+        self.woi_pixel_xys: Optional[np.ndarray] = None
         self.woi_results = []
         # Load parameters from JSON file
         params_path = common.check_path(params_json_path)
@@ -64,11 +64,11 @@ class SolweigRun:
         except Exception as e:
             raise RuntimeError(f"Failed to load parameters from {params_json_path}: {e}")
         # Prepare core data
-        self.dsm_arr: np.ndarray | None = None
-        self.scale: float | None = None
-        self.rows: int | None = None
-        self.cols: int | None = None
-        self.location: dict[str, float] | None = None
+        self.dsm_arr: Optional[np.ndarray] = None
+        self.scale: Optional[float] = None
+        self.rows: Optional[int] = None
+        self.cols: Optional[int] = None
+        self.location: Optional[Dict[str, float]] = None
 
     def prep_progress(self, num: int) -> None:
         """Prepare progress for environment."""
@@ -104,19 +104,19 @@ class SolweigRun:
             UTC=self.config.utc,
         )
 
-    def load_poi_data(self, trf_arr: list[float]) -> None:
+    def load_poi_data(self, trf_arr: List[float]) -> None:
         """Load point of interest (POI) data from a file."""
         raise NotImplementedError("This method should be implemented in subclasses.")
 
-    def save_poi_results(self, trf_arr: list[float], crs_wkt: str) -> None:
+    def save_poi_results(self, trf_arr: List[float], crs_wkt: str) -> None:
         """Save results for points of interest (POIs) to files."""
         raise NotImplementedError("This method should be implemented in subclasses.")
 
-    def load_woi_data(self, trf_arr: list[float]) -> None:
+    def load_woi_data(self, trf_arr: List[float]) -> None:
         """Load wall of interest (WOI) data from a file."""
         raise NotImplementedError("This method should be implemented in subclasses.")
 
-    def save_woi_results(self, trf_arr: list[float], crs_wkt: str) -> None:
+    def save_woi_results(self, trf_arr: List[float], crs_wkt: str) -> None:
         """Save results for walls of interest (WOIs) to files."""
         raise NotImplementedError("This method should be implemented in subclasses.")
 
