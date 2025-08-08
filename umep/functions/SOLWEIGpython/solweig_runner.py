@@ -402,7 +402,7 @@ class SolweigRun:
                 shadow_mats.vegshmat,
                 shadow_mats.vbshvegshmat,
                 walls_data.voxelMaps,
-                walls_data.walls_scheme,
+                self.config.use_wall_scheme,
             )
 
         # Initiate array for I0 values plotting
@@ -638,7 +638,7 @@ class SolweigRun:
                     result_row["Kside"] = Kside[row_idx, col_idx]
                     self.poi_results.append(result_row)
 
-            if self.woi_pixel_xys is not None:
+            if self.config.use_wall_scheme and self.woi_pixel_xys is not None:
                 for n in range(0, self.woi_pixel_xys.shape[0]):
                     idx, row_idx, col_idx = self.woi_pixel_xys[n]
                     row_idx = int(row_idx)

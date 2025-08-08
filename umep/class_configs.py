@@ -216,6 +216,8 @@ class SolweigConfig:
             raise ValueError("Either use_landcover or use_dem_for_buildings must be True.")
         if self.use_aniso and self.aniso_path is None:
             raise ValueError("Anisotropic sky path must be set if use_aniso is True.")
+        if self.use_wall_scheme and self.wall_path is None:
+            raise ValueError("Wall scheme path must be set if use_wall_scheme is True.")
         # Add more validation as needed
 
 
