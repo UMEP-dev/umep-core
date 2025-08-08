@@ -37,7 +37,7 @@ except:
 # imports for standalone
 try:
     import geopandas as gpd
-    from rasterio.transform import rowcol
+    from rasterio.transform import Affine, rowcol
     from tqdm import tqdm
 
     from umep import common
@@ -197,18 +197,22 @@ def solweig_run(configPath, feedback):
             pois_gdf = gpd.read_file(configDict["poi_file"])
             numfeat = pois_gdf.shape[0]
             poisxy = np.zeros((numfeat, 3)) - 999
+            poiname = []
             for idx, row in pois_gdf.iterrows():
                 y, x = rowcol(
-                    dsm_trf_arr, row["geometry"].centroid.x, row["geometry"].centroid.y
+                    Affine.from_gdal(*dsm_trf_arr), row["geometry"].centroid.x, row["geometry"].centroid.y
                 )  # TODO: This produce different result since no standalone round coordinates
-                poiname.append(row[configDict["poi_field"]])
+                if configDict["poi_field"]:
+                    poiname.append(row[configDict["poi_field"]])
+                else:
+                    poiname.append(str(idx))
                 poisxy[idx, 0] = idx
                 poisxy[idx, 1] = x
                 poisxy[idx, 2] = y
 
         for k in range(0, poisxy.shape[0]):
             poi_save = []
-            data_out = configDict["output_dir"] + "/POI_" + str(poiname[k]) + ".txt"
+            data_out = configDict["output_dir"] + "POI_" + str(poiname[k]) + ".txt"
             np.savetxt(data_out, poi_save, delimiter=" ", header=header, comments="")
         print(poisxy)
         # Num format for POI output
