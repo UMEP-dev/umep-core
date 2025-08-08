@@ -659,6 +659,8 @@ class SolweigRun:
                     col_idx = int(col_idx)
                     result_row = {
                         "poi_idx": idx,
+                        "col_idx": col_idx,
+                        "row_idx": row_idx,
                         "yyyy": environ_data.YYYY[i],
                         "id": environ_data.jday[i],
                         "it": environ_data.hours[i],

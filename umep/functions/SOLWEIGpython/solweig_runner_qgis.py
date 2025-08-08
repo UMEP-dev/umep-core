@@ -40,15 +40,15 @@ class SolweigRunQgis(SolweigRun):
         """Save points of interest (POIs) results to a text file with geographic coordinates."""
         if not self.poi_results:
             return
-        # Extract header from first result and add lng/lat
-        header = ["name"] + list(self.poi_results[0].keys()) + ["lng", "lat"]
+        # Extract header from first result and add east/northing
+        header = ["name"] + list(self.poi_results[0].keys()) + ["easting", "northing"]
         # Write results to file
         output_path = self.config.output_dir + "/POI_results.txt"
         with open(output_path, "w") as f:
             f.write("\t".join(header) + "\n")
             for result in self.poi_pixel_xys:
-                lng = result["pixel_x"] * trf_arr[1] + trf_arr[0]
-                lat = result["pixel_y"] * trf_arr[1] + trf_arr[3]
+                lng = result["col_idx"] * trf_arr[1] + trf_arr[0]
+                lat = result["row_idx"] * trf_arr[1] + trf_arr[3]
                 row_values = list(result.values()) + [lng, lat]
                 f.write("\t".join(map(str, row_values)) + "\n")
 

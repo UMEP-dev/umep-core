@@ -47,11 +47,13 @@ class SolweigRunCore(SolweigRun):
     def save_poi_results(self, trf_arr: list[float], crs_wkt: str) -> None:
         """Save points of interest (POIs) results to a file."""
         # Convert pixel coordinates to geographic coordinates
+        xs = [r["col_idx"] * trf_arr[1] + trf_arr[0] for r in self.poi_results]
+        ys = [r["row_idx"] * trf_arr[1] + trf_arr[3] for r in self.poi_results]
         pois_gdf = gpd.GeoDataFrame(
             self.poi_results,
             geometry=gpd.points_from_xy(
-                self.poi_pixel_xys[:, 1] * trf_arr[1] + trf_arr[0],
-                self.poi_pixel_xys[:, 2] * trf_arr[1] + trf_arr[3],
+                xs,
+                ys,
             ),
             crs=crs_wkt,
         )
