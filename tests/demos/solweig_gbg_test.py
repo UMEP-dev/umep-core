@@ -5,7 +5,7 @@ from umep import (
     skyviewfactor_algorithm,
     wall_heightaspect_algorithm,
 )
-from umep.functions.SOLWEIGpython import solweig_runner_core
+from umep.functions.SOLWEIGpython import Solweig_run, solweig_runner_core
 
 # %%
 bbox = [476070, 4203550, 477110, 4204330]
@@ -55,3 +55,8 @@ SWC = solweig_runner_core.SolweigRunCore(
     params_json_path=params_path,
 )
 SWC.run()
+
+# %%
+Solweig_run.solweig_run("tests/data/Goteborg_SWEREF99_1200/config_solweig_old_fmt.ini", None)
+
+# %%

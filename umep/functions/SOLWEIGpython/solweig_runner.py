@@ -287,7 +287,7 @@ class SolweigRun:
             shadow_mats.shmat,
             shadow_mats.vegshmat,
             shadow_mats.vbshvegshmat,
-            self.config.use_aniso,
+            int(self.config.use_aniso),  # expects int
             shadow_mats.asvf,
             shadow_mats.patch_option,
             walls_data.voxelMaps,

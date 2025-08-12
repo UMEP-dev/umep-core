@@ -1,7 +1,7 @@
 import datetime
 import zipfile
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import Any, Optional, Tuple, Union
 
 import numpy as np
 
@@ -441,16 +441,16 @@ class SvfData:
 
 
 class ShadowMatrices:
-    """ """
+    """Shadow matrices and related anisotropic sky data."""
 
     use_aniso: bool
-    shmat: np.ndarray | None
-    diffsh: np.ndarray | None
-    vegshmat: np.ndarray | None
-    vbshvegshmat: np.ndarray | None
-    asvf: np.ndarray | None
+    shmat: Optional[np.ndarray]
+    diffsh: Optional[np.ndarray]
+    vegshmat: Optional[np.ndarray]
+    vbshvegshmat: Optional[np.ndarray]
+    asvf: Optional[np.ndarray]
     patch_option: int
-    steradians: int
+    steradians: Union[int, np.ndarray]
 
     def __init__(
         self,
@@ -494,7 +494,9 @@ class ShadowMatrices:
             # Empty array for steradians
             self.steradians = np.zeros(self.shmat.shape[2])
         else:
-            # anisotropic_sky = 0
+            # no anisotropic sky
+            # downstream functions only access these if use_aniso is True
+            # be aware that Solweig_2025a_calc expects an int not bool for use_aniso
             self.diffsh = None
             self.shmat = None
             self.vegshmat = None
@@ -507,12 +509,12 @@ class ShadowMatrices:
 class WallsData:
     """Class to represent wall characteristics and configurations."""
 
-    voxelMaps: np.ndarray | None
-    voxelTable: np.ndarray | None
+    voxelMaps: Optional[np.ndarray]
+    voxelTable: Optional[np.ndarray]
     timeStep: int
     walls_scheme: np.ndarray
     dirwalls_scheme: np.ndarray
-    met_for_xarray: tuple[pd.DatetimeIndex] | None
+    met_for_xarray: Optional[Tuple[Any]]
 
     def __init__(
         self,
@@ -524,7 +526,7 @@ class WallsData:
         weather_data: EnvironData,
         tg_maps: TgMaps,
         dsm_arr: np.ndarray,
-        lcgrid: np.ndarray | None,
+        lcgrid: Optional[np.ndarray],
     ):
         """Initialize the WallScheme with necessary parameters."""
         if model_configs.use_wall_scheme:
