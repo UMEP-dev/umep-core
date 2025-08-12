@@ -250,7 +250,7 @@ class SolweigRun:
             environ_data.altmax[iter],
             wallaspect,
             wallheight,
-            self.config.person_cylinder,
+            int(self.config.person_cylinder),  # expects int though should work either way
             elvis,
             environ_data.Ta[iter],
             environ_data.RH[iter],
@@ -287,7 +287,7 @@ class SolweigRun:
             shadow_mats.shmat,
             shadow_mats.vegshmat,
             shadow_mats.vbshvegshmat,
-            int(self.config.use_aniso),  # expects int
+            int(self.config.use_aniso),  # expects int though should work either way
             shadow_mats.asvf,
             shadow_mats.patch_option,
             walls_data.voxelMaps,
@@ -493,7 +493,6 @@ class SolweigRun:
         else:
             first_unique_day = environ_data.DOY.copy()
             I0_array = np.zeros_like(environ_data.DOY)
-        # For Tmrt plot
         # For Tmrt plot
         tmrtplot = np.zeros((self.rows, self.cols))
         # Number of iterations
