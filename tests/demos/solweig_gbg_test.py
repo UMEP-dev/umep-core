@@ -57,6 +57,7 @@ SWC = solweig_runner_core.SolweigRunCore(
 SWC.run()
 
 # %%
+# For comparison
 Solweig_run.solweig_run("tests/data/Goteborg_SWEREF99_1200/config_solweig_old_fmt.ini", None)
 
 # %%
