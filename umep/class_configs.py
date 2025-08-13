@@ -1,4 +1,5 @@
 import datetime
+import logging
 import zipfile
 from dataclasses import dataclass
 from typing import Any, Optional, Tuple, Union
@@ -16,6 +17,9 @@ from . import common
 from .functions import wallalgorithms as wa
 from .functions.SOLWEIGpython.wall_surface_temperature import load_walls
 from .util.SEBESOLWEIGCommonFiles import sun_position as sp
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 class TgMaps:
@@ -63,6 +67,7 @@ class TgMaps:
             self.TgK_wall = model_params.Ts_deg.Value.Walls
             self.Tstart_wall = model_params.Tstart.Value.Walls
             self.TmaxLST_wall = model_params.TmaxLST.Value.Walls
+            logger.info("TgMaps initialized with default (no land cover) parameters.")
         else:
             # Copy land cover grid
             lc_grid = np.copy(lc_grid)
@@ -97,6 +102,7 @@ class TgMaps:
             self.TgK_wall = getattr(model_params.Ts_deg.Value, "Walls", None)
             self.Tstart_wall = getattr(model_params.Tstart.Value, "Walls", None)
             self.TmaxLST_wall = getattr(model_params.TmaxLST.Value, "Walls", None)
+            logger.info("TgMaps initialized using land cover grid.")
 
 
 @dataclass
@@ -149,6 +155,7 @@ class SolweigConfig:
 
     def to_file(self, file_path: str):
         """Save configuration to a file."""
+        logger.info("Saving configuration to %s", file_path)
         with open(file_path, "w") as f:
             for key in type(self).__annotations__:
                 value = getattr(self, key)
@@ -162,6 +169,7 @@ class SolweigConfig:
     def from_file(self, config_path_str: str):
         """Load configuration from a file."""
         config_path = common.check_path(config_path_str)
+        logger.info("Loading configuration from %s", config_path)
         with open(config_path) as f:
             for line in f:
                 if "=" in line:
@@ -174,54 +182,66 @@ class SolweigConfig:
                         else:
                             setattr(self, key, value)
                     else:
-                        print(f"Unknown key in config: {key}")
+                        logger.warning("Unknown key in config: %s", key)
 
     def validate(self):
         """Validate configuration parameters."""
+        logger.info("Validating SOLWEIG configuration.")
         if not self.output_dir:
+            logger.error("Output directory must be set.")
             raise ValueError("Output directory must be set.")
         self.output_dir = str(common.check_path(self.output_dir, make_dir=True))
         if not self.working_dir:
+            logger.error("Working directory must be set.")
             raise ValueError("Working directory must be set.")
         self.working_dir = str(common.check_path(self.working_dir, make_dir=True))
         if not self.dsm_path:
+            logger.error("DSM path must be set.")
             raise ValueError("DSM path must be set.")
         self.utc = bool(self.utc)
         if (self.met_path is None and self.epw_path is None) or (self.met_path and self.epw_path):
+            logger.error("Provide either MET or EPW weather file.")
             raise ValueError("Provide either MET or EPW weather file.")
         if self.epw_path is not None:
             if self.epw_start_date is None or self.epw_end_date is None:
+                logger.error("EPW start and end dates must be provided if EPW path is set.")
                 raise ValueError("EPW start and end dates must be provided if EPW path is set.")
-            # year,month,day,hour
-            # parse the start and end dates to lists
             try:
                 if isinstance(self.epw_start_date, str):
                     self.epw_start_date = [int(x) for x in self.epw_start_date.split(",")]
                 if isinstance(self.epw_end_date, str):
                     self.epw_end_date = [int(x) for x in self.epw_end_date.split(",")]
                 if len(self.epw_start_date) != 4 or len(self.epw_end_date) != 4:
+                    logger.error("EPW start and end dates must be in the format: year,month,day,hour")
                     raise ValueError("EPW start and end dates must be in the format: year,month,day,hour")
             except ValueError as err:
+                logger.error("Invalid EPW date format: %s or %s", self.epw_start_date, self.epw_end_date)
                 raise ValueError(f"Invalid EPW date format: {self.epw_start_date} or {self.epw_end_date}") from err
             if self.epw_hours is None:
-                self.epw_hours = list(range(24))  # Default to all hours if not specified
+                self.epw_hours = list(range(24))
             elif isinstance(self.epw_hours, str):
                 self.epw_hours = [int(h) for h in self.epw_hours.split(",")]
             if not all(0 <= h < 24 for h in self.epw_hours):
+                logger.error("EPW hours must be between 0 and 23.")
                 raise ValueError("EPW hours must be between 0 and 23.")
         if self.use_landcover and self.lc_path is None:
+            logger.error("Land cover path must be set if use_landcover is True.")
             raise ValueError("Land cover path must be set if use_landcover is True.")
         if self.use_dem_for_buildings and self.dem_path is None:
+            logger.error("DEM path must be set if use_dem_for_buildings is True.")
             raise ValueError("DEM path must be set if use_dem_for_buildings is True.")
         if not self.use_landcover and not self.use_dem_for_buildings:
+            logger.error("Either use_landcover or use_dem_for_buildings must be True.")
             raise ValueError("Either use_landcover or use_dem_for_buildings must be True.")
         if self.use_aniso and self.aniso_path is None:
+            logger.error("Anisotropic sky path must be set if use_aniso is True.")
             raise ValueError("Anisotropic sky path must be set if use_aniso is True.")
         if self.use_wall_scheme and self.wall_path is None:
+            logger.error("Wall scheme path must be set if use_wall_scheme is True.")
             raise ValueError("Wall scheme path must be set if use_wall_scheme is True.")
         if self.plot_poi_patches and (not self.use_aniso or not self.poi_path):
+            logger.error("POI path and use_aniso must be set if plot_poi_patches is True.")
             raise ValueError("POI path and use_aniso must be set if plot_poi_patches is True.")
-        # Add more validation as needed
 
 
 @dataclass
@@ -398,9 +418,7 @@ class SvfData:
     svfalfa: np.ndarray
 
     def __init__(self, model_configs: SolweigConfig):
-        """
-        Loads SVF and shadow matrix results from disk and returns a SVFResults dataclass instance.
-        """
+        logger.info("Loading SVF data from %s", model_configs.svf_path)
         svf_path_str = str(common.check_path(model_configs.svf_path, make_dir=False))
         in_path_str = str(common.check_path(model_configs.working_dir, make_dir=False))
         # Unzip
@@ -423,6 +441,7 @@ class SvfData:
             self.svf_veg_blocks_bldg_sh_south, _, _, _ = common.load_raster(in_path_str + "/" + "svfSaveg.tif")
             self.svf_veg_blocks_bldg_sh_west, _, _, _ = common.load_raster(in_path_str + "/" + "svfWaveg.tif")
             self.svf_veg_blocks_bldg_sh_north, _, _, _ = common.load_raster(in_path_str + "/" + "svfNaveg.tif")
+            logger.info("Vegetation SVF data loaded.")
         else:
             self.svf_veg = np.ones_like(self.svf)
             self.svf_veg_east = np.ones_like(self.svf)
@@ -438,6 +457,7 @@ class SvfData:
         tmp = self.svf + self.svf_veg - 1.0
         tmp[tmp < 0.0] = 0.0
         self.svfalfa = np.arcsin(np.exp(np.log(1.0 - tmp) / 2.0))
+        logger.info("SVF data loaded and processed.")
 
 
 class ShadowMatrices:
@@ -461,9 +481,8 @@ class ShadowMatrices:
         svf_data: SvfData,
     ):
         self.use_aniso = model_configs.use_aniso
-
-        # Import shadow matrices (Anisotropic sky)
         if self.use_aniso:
+            logger.info("Loading anisotropic shadow matrices from %s", model_configs.aniso_path)
             aniso_path_str = str(common.check_path(model_configs.aniso_path, make_dir=False))
             data = np.load(aniso_path_str)
             self.shmat = data["shadowmat"]
@@ -474,9 +493,11 @@ class ShadowMatrices:
                 for i in range(0, self.shmat.shape[2]):
                     self.diffsh[:, :, i] = self.shmat[:, :, i] - (1 - self.vegshmat[:, :, i]) * (
                         1 - model_params.Tree_settings.Value.Transmissivity
-                    )  # changes in psi not implemented yet
+                    )
+                logger.info("Shadow matrices with vegetation loaded.")
             else:
                 self.diffsh = self.shmat
+                logger.info("Shadow matrices loaded (no vegetation).")
 
             # Estimate number of patches based on shadow matrices
             if self.shmat.shape[2] == 145:
@@ -504,6 +525,7 @@ class ShadowMatrices:
             self.asvf = None
             self.patch_option = 0
             self.steradians = 0
+            logger.info("Anisotropic sky not used; shadow matrices not loaded.")
 
 
 class WallsData:
@@ -528,8 +550,8 @@ class WallsData:
         dsm_arr: np.ndarray,
         lcgrid: Optional[np.ndarray],
     ):
-        """Initialize the WallScheme with necessary parameters."""
         if model_configs.use_wall_scheme:
+            logger.info("Loading wall scheme data from %s", model_configs.wall_path)
             wall_path_str = str(common.check_path(model_configs.wall_path, make_dir=False))
             wallData = np.load(wall_path_str)
             #
@@ -579,6 +601,7 @@ class WallsData:
                 + pd.to_timedelta(weather_data.hours, unit="h")
                 + pd.to_timedelta(weather_data.minu, unit="m")
             )
+            logger.info("Wall scheme data loaded and processed.")
         else:
             self.voxelMaps = None
             self.voxelTable = None
@@ -586,3 +609,59 @@ class WallsData:
             self.walls_scheme = np.ones((rows, cols)) * 10.0
             self.dirwalls_scheme = np.ones((rows, cols)) * 10.0
             self.met_for_xarray = None
+            logger.info("Wall scheme not used; default wall data initialized.")
+
+
+class Vegetation:
+    """Class to represent vegetation parameters."""
+
+    amaxvalue: float
+    vegdsm: np.ndarray
+    vegdsm2: np.ndarray
+    bush: np.ndarray
+    svfbuveg: np.ndarray
+
+    def __init__(
+        self,
+        model_configs: SolweigConfig,
+        model_params,
+        rows: int,
+        cols: int,
+        svf_data: SvfData,
+        dsm_arr: np.ndarray,
+    ):
+        if model_configs.use_veg_dem:
+            self.vegdsm, _, _, _ = common.load_raster(model_configs.cdsm_path, bbox=None)
+            logger.info("Vegetation DSM loaded from %s", model_configs.cdsm_path)
+            if model_configs.tdsm_path:
+                self.vegdsm2, _, _, _ = common.load_raster(model_configs.tdsm_path, bbox=None)
+                logger.info("Tree DSM loaded from %s", model_configs.tdsm_path)
+            else:
+                self.vegdsm2 = self.vegdsm * model_params.Tree_settings.Value.Trunk_ratio
+                logger.info("Tree DSM not provided; using trunk ratio for vegdsm2.")
+        else:
+            self.vegdsm = None
+            self.vegdsm2 = None
+            logger.info("Vegetation DEM not used; vegetation arrays set to None.")
+
+        if model_configs.use_veg_dem:
+            # amaxvalue
+            vegmax = self.vegdsm.max()
+            self.amaxvalue = dsm_arr.max() - dsm_arr.min()
+            self.amaxvalue = np.maximum(self.amaxvalue, vegmax)
+            # Elevation vegdsms if buildingDEM includes ground heights
+            self.vegdsm = self.vegdsm + dsm_arr
+            self.vegdsm[self.vegdsm == dsm_arr] = 0
+            self.vegdsm2 = self.vegdsm2 + dsm_arr
+            self.vegdsm2[self.vegdsm2 == dsm_arr] = 0
+            # % Bush separation
+            self.bush = np.logical_not(self.vegdsm2 * self.vegdsm) * self.vegdsm
+            self.svfbuveg = svf_data.svf - (1.0 - svf_data.svf_veg) * (
+                1.0 - model_params.Tree_settings.Value.Transmissivity
+            )
+            logger.info("Vegetation parameters calculated.")
+        else:
+            self.svfbuveg = svf_data.svf
+            self.bush = np.zeros([rows, cols])
+            self.amaxvalue = 0
+            logger.info("Vegetation parameters set to defaults (no vegetation DEM).")
