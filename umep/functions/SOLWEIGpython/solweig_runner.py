@@ -18,7 +18,6 @@ except ImportError:
 
 from ... import common
 from ...class_configs import EnvironData, ShadowMatrices, SolweigConfig, SvfData, TgMaps, Vegetation, WallsData
-from ...util.SEBESOLWEIGCommonFiles.clearnessindex_2013b import clearnessindex_2013b
 from . import PET_calculations
 from . import Solweig_2025a_calc_forprocessing as so
 from . import UTCI_calculations as utci
@@ -321,8 +320,6 @@ class SolweigRun:
         self,
         iter: int,
         elvis: float,
-        CI: float,
-        Twater: float,
         first: float,
         second: float,
         firstdaytime: float,
@@ -390,7 +387,7 @@ class SolweigRun:
             self.environ_data.P[iter],
             self.vegetation.amaxvalue,
             self.vegetation.bush,
-            Twater,
+            self.environ_data.Twater[iter],
             self.tg_maps.TgK,
             self.tg_maps.Tstart,
             self.tg_maps.alb_grid,
@@ -411,7 +408,7 @@ class SolweigRun:
             self.tg_maps.Tgmap1S,
             self.tg_maps.Tgmap1W,
             self.tg_maps.Tgmap1N,
-            CI,
+            self.environ_data.CI[iter],
             self.tg_maps.TgOut1,
             self.shadow_mats.diffsh,
             self.shadow_mats.shmat,
@@ -467,57 +464,12 @@ class SolweigRun:
         # Prepare progress tracking
         self.prep_progress(num)
         logger.info("Progress tracking prepared for %d iterations", num)
-        # TODO: confirm intent of water temperature handling
-        # Assuming it should be initialized to NaN outside the loop so that it can be updated at the start of each day
-        Twater = np.nan
-        CI = 1.0
         elvis = 0.0
-
+        #
         for i in range(num):
             proceed = self.iter_progress()
             if not proceed:
                 break
-
-            # Daily water body temperature - only if land cover is used
-            if self.config.use_landcover:  # noqa: SIM102
-                # Check if the current time is the start of a new day
-                if (self.environ_data.dectime[i] - np.floor(self.environ_data.dectime[i])) == 0 or (i == 0):
-                    # Find average temperature for the current day
-                    Twater = np.mean(
-                        self.environ_data.Ta[self.environ_data.jday == np.floor(self.environ_data.dectime[i])]
-                    )
-
-            # Nocturnal cloudfraction from Offerle et al. 2003
-            # Check for start of day
-            if (self.environ_data.dectime[i] - np.floor(self.environ_data.dectime[i])) == 0:
-                # Find all current day idxs
-                daylines = np.where(np.floor(self.environ_data.dectime) == self.environ_data.dectime[i])
-                # np.where returns a tuple, so check the first element
-                if len(daylines[0]) > 1:
-                    # Get the altitudes for day's idxs
-                    alt_day = self.environ_data.altitude[daylines[0]]
-                    # Find all idxs with altitude greater than 1
-                    alt2 = np.where(alt_day > 1)
-                    # np.where returns a tuple, so check the first element
-                    if len(alt2[0]) > 0:
-                        # Take the first altitude greater than 1
-                        rise = alt2[0][0]
-                        # Calculate clearness index for the next time step after sunrise
-                        [_, CI, _, _, _] = clearnessindex_2013b(
-                            self.environ_data.zen[i + rise + 1],
-                            self.environ_data.jday[i + rise + 1],
-                            self.environ_data.Ta[i + rise + 1],
-                            self.environ_data.RH[i + rise + 1] / 100.0,
-                            self.environ_data.radG[i + rise + 1],
-                            self.location,
-                            self.environ_data.P[i + rise + 1],
-                        )
-                        if (CI > 1.0) or (~np.isfinite(CI)):
-                            CI = 1.0
-                    else:
-                        CI = 1.0
-                else:
-                    CI = 1.0
             # Run the SOLWEIG calculations
             (
                 Tmrt,
@@ -564,8 +516,6 @@ class SolweigRun:
             ) = self.calc_solweig(
                 i,
                 elvis,
-                CI,
-                Twater,
                 first,
                 second,
                 firstdaytime,

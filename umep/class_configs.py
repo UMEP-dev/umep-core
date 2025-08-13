@@ -6,6 +6,8 @@ from typing import Any, Optional, Tuple, Union
 
 import numpy as np
 
+from .util.SEBESOLWEIGCommonFiles.clearnessindex_2013b import clearnessindex_2013b
+
 # Attempt to import pandas for DataFrame support
 # If pandas is not available in QGIS... set it to None
 try:
@@ -267,6 +269,8 @@ class EnvironData:
     psi: np.ndarray
     dectime: np.ndarray
     altmax: np.ndarray
+    Twater: np.ndarray
+    CI: np.ndarray
 
     def __init__(
         self,
@@ -317,7 +321,7 @@ class EnvironData:
         }
         sunmaximum = 0.0
 
-        # initialize matrices
+        # initialize arrays
         self.altitude = np.empty(data_len)
         self.azimuth = np.empty(data_len)
         self.zen = np.empty(data_len)
@@ -325,9 +329,15 @@ class EnvironData:
         self.leafon = np.empty(data_len)
         self.psi = np.empty(data_len)
         self.altmax = np.empty(data_len)
+        self.Twater = np.empty(data_len)
+        self.CI = np.empty(data_len)
 
         sunmax = dict()
 
+        # These variables lag across days until updated
+        Twater = None
+        CI = 1
+        # Iterate over time steps and set vars
         for i in range(data_len):
             YMD = datetime.datetime(int(self.YYYY[i]), 1, 1) + datetime.timedelta(int(self.DOY[i]) - 1)
             # Finding maximum altitude in 15 min intervals (20141027)
@@ -391,6 +401,44 @@ class EnvironData:
                         (model_params.Tree_settings.Value.First_day_leaf < doy)
                         & (model_params.Tree_settings.Value.Last_day_leaf > doy)
                     )
+            # Check if the current time is the start of a new day
+            if (self.dectime[i] - np.floor(self.dectime[i])) == 0 or (i == 0):
+                # Find average temperature for the current day
+                Twater = np.mean(self.Ta[self.jday == np.floor(self.dectime[i])])
+            # Lags across hours until updated
+            self.Twater[i] = Twater
+
+            # Nocturnal cloudfraction from Offerle et al. 2003
+            # Check for start of day
+            if (self.dectime[i] - np.floor(self.dectime[i])) == 0:
+                # Fallback
+                CI = 1.0
+                # Find all current day idxs
+                daylines = np.where(np.floor(self.dectime) == self.dectime[i])
+                # np.where returns a tuple, so check the first element
+                if len(daylines[0]) > 1:
+                    # Get the altitudes for day's idxs
+                    alt_day = self.altitude[daylines[0]]
+                    # Find all idxs with altitude greater than 1
+                    alt2 = np.where(alt_day > 1)
+                    # np.where returns a tuple, so check the first element
+                    if len(alt2[0]) > 0:
+                        # Take the first altitude greater than 1
+                        rise = alt2[0][0]
+                        # Calculate clearness index for the next time step after sunrise
+                        [_, CI_candidate, _, _, _] = clearnessindex_2013b(
+                            self.zen[i + rise + 1],
+                            self.jday[i + rise + 1],
+                            self.Ta[i + rise + 1],
+                            self.RH[i + rise + 1] / 100.0,
+                            self.radG[i + rise + 1],
+                            location,
+                            self.P[i + rise + 1],
+                        )
+                        if np.isfinite(CI_candidate) and CI_candidate <= 1.0:
+                            CI = CI_candidate
+            # Lags across hours until updated
+            self.CI[i] = CI
         # Calculate psi (transmissivity)
         self.psi = self.leafon * model_params.Tree_settings.Value.Transmissivity
         # TODO: check if this is correct
