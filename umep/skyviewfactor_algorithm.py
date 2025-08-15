@@ -71,7 +71,7 @@ def generate_svf(
     out_path_str = str(out_path)
 
     # Open the DSM file
-    dsm_rast, dsm_transf, dsm_crs, _dsm_nd = common.load_raster(dsm_path, bbox)
+    dsm, dsm_transf, dsm_crs, _dsm_nd = common.load_raster(dsm_path, bbox)
     dsm_scale = 1 / dsm_transf[1]
 
     # veg transmissivity as percentage
@@ -80,34 +80,34 @@ def generate_svf(
     trans_veg = trans_veg_perc / 100.0
 
     # CDSM
-    rows, cols = dsm_rast.shape
+    rows, cols = dsm.shape
     if cdsm_path is None:
         use_cdsm = False
-        cdsm_rast = np.zeros([rows, cols])
+        cdsm = np.zeros([rows, cols])
     else:
         use_cdsm = True
-        cdsm_rast, cdsm_transf, cdsm_crs, _cdsm_nd = common.load_raster(cdsm_path, bbox)
-        if not cdsm_rast.shape == dsm_rast.shape:
+        cdsm, cdsm_transf, cdsm_crs, _cdsm_nd = common.load_raster(cdsm_path, bbox)
+        if not cdsm.shape == dsm.shape:
             raise ValueError("Mismatching raster shapes for DSM and CDSM.")
         if cdsm_crs is not None and cdsm_crs != dsm_crs:
             raise ValueError("Mismatching CRS for DSM and CDSM.")
         if not np.allclose(dsm_transf, cdsm_transf):
             raise ValueError("Mismatching spatial transform for DSM and CDSM.")
         # Check if CDSM has DEM info
-        cdsm_zero_ratio = np.sum(cdsm_rast <= 0) / (rows * cols)
+        cdsm_zero_ratio = np.sum(cdsm <= 0) / (rows * cols)
         if cdsm_zero_ratio > 0.05:
             logger.warning("CDSM appears to have no DEM information: boosting CDSM to DSM heights.")
             # Set vegetated pixels to DSM + CDSM otherwise zero
-            cdsm_rast = np.where(cdsm_rast > 0, dsm_rast + cdsm_rast, 0)
+            cdsm = np.where(cdsm > 0, dsm + cdsm, 0)
 
-    # CDSM 2
+    # TDSM
     if not (0 <= trunk_ratio_perc <= 100):
         raise ValueError("Vegetation trunk ratio should be a number between 0 and 100")
     trunk_ratio = trunk_ratio_perc / 100.0
-    cdsm_2_rast = cdsm_rast * trunk_ratio
+    tdsm = cdsm * trunk_ratio
 
     # compute
-    ret = svf.svfForProcessing153(dsm_rast, cdsm_rast, cdsm_2_rast, dsm_scale, use_cdsm)
+    ret = svf.svfForProcessing153(dsm, cdsm, tdsm, dsm_scale, use_cdsm)
 
     svfbu = ret["svf"]
     svfbuE = ret["svfE"]
