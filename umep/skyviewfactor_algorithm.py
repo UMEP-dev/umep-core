@@ -43,6 +43,7 @@ __copyright__ = "(C) 2020 by Fredrik Lindberg"
 __revision__ = "$Format:%H$"
 
 # %%
+import logging
 import os
 import zipfile
 from pathlib import Path
@@ -52,15 +53,18 @@ import numpy as np
 from umep import common
 from umep.functions import svf_functions as svf
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 # %%
 def generate_svf(
     dsm_path: str,
-    bbox: list[int, int, int, int],
+    bbox: list[int],
     out_dir: str,
     cdsm_path: str | None = None,
-    trans_veg: float = 3,
-    trunk_ratio: float = 0.25,
+    trans_veg_perc: float = 3,
+    trunk_ratio_perc: float = 25,
 ):
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
@@ -71,28 +75,37 @@ def generate_svf(
     dsm_scale = 1 / dsm_transf[1]
 
     # veg transmissivity as percentage
-    if not trans_veg >= 0 and trans_veg <= 100:
+    if not (0 <= trans_veg_perc <= 100):
         raise ValueError("Vegetation transmissivity should be a number between 0 and 100")
-    trans = trans_veg / 100.0
+    trans_veg = trans_veg_perc / 100.0
 
     # CDSM
     rows, cols = dsm_rast.shape
     if cdsm_path is None:
-        use_cdsm = 0
+        use_cdsm = False
         cdsm_rast = np.zeros([rows, cols])
     else:
-        use_cdsm = 1
+        use_cdsm = True
         cdsm_rast, cdsm_transf, cdsm_crs, _cdsm_nd = common.load_raster(cdsm_path, bbox)
-        if not cdsm_crs == dsm_crs:
+        if not cdsm_rast.shape == dsm_rast.shape:
+            raise ValueError("Mismatching raster shapes for DSM and CDSM.")
+        if cdsm_crs is not None and cdsm_crs != dsm_crs:
             raise ValueError("Mismatching CRS for DSM and CDSM.")
         if not np.allclose(dsm_transf, cdsm_transf):
             raise ValueError("Mismatching spatial transform for DSM and CDSM.")
+        # Check if CDSM has DEM info
+        cdsm_zero_ratio = np.sum(cdsm_rast <= 0) / (rows * cols)
+        if cdsm_zero_ratio > 0.05:
+            logger.warning("CDSM appears to have no DEM information: boosting CDSM to DSM heights.")
+            # Set vegetated pixels to DSM + CDSM otherwise zero
+            cdsm_rast = np.where(cdsm_rast > 0, dsm_rast + cdsm_rast, 0)
 
     # CDSM 2
-    # cdsm_2_rast = np.zeros([rows, cols])
+    if not (0 <= trunk_ratio_perc <= 100):
+        raise ValueError("Vegetation trunk ratio should be a number between 0 and 100")
+    trunk_ratio = trunk_ratio_perc / 100.0
+    cdsm_2_rast = cdsm_rast * trunk_ratio
 
-    # trunk_ratio = trunk_ratio / 100.0
-    cdsm_2_rast = cdsm_rast * trunk_ratio  # issue8
     # compute
     ret = svf.svfForProcessing153(dsm_rast, cdsm_rast, cdsm_2_rast, dsm_scale, use_cdsm)
 
@@ -181,7 +194,7 @@ def generate_svf(
         os.remove(out_path_str + "/" + "svfNaveg.tif")
 
         # Calculate final total SVF
-        svftotal = svfbu - (1 - svfveg) * (1 - trans)
+        svftotal = svfbu - (1 - svfveg) * (1 - trans_veg)
 
     # Save the final svftotal raster
     common.save_raster(out_path_str + "/" + "svf_total.tif", svftotal, dsm_transf, dsm_crs)

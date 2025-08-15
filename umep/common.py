@@ -41,11 +41,16 @@ def rasterise_gdf(gdf, geom_col, ht_col, bbox=None, pixel_size: int = 1):
 def check_path(path_str: str | Path, make_dir: bool = False) -> Path:
     # Ensure path exists
     path = Path(path_str).absolute()
+    if not path.parent.exists():
+        if make_dir:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            raise OSError(f"Parent directory {path} does not exist. Set make_dir=True to create it.")
     if not path.exists() and not path.suffix:
         if make_dir:
             path.mkdir(parents=True, exist_ok=True)
         else:
-            raise OSError(f"Path {path} does not exist.")
+            raise OSError(f"Path {path} does not exist. Set make_dir=True to create it.")
     return path
 
 

@@ -31,8 +31,10 @@ class SolweigRunQgis(SolweigRun):
 
     def load_poi_data(self) -> Tuple[Any, Any]:
         """Load points of interest (POIs) from a file."""
-        scale = 1 / self.dsm_trf_arr[1]
-        poi_names, poi_pixel_xys = pointOfInterest(self.config.poi_file, self.config.poi_field, scale, self.dsm_trf_arr)
+        scale = 1 / self.raster_data.trf_arr[1]
+        poi_names, poi_pixel_xys = pointOfInterest(
+            self.config.poi_file, self.config.poi_field, scale, self.raster_data.trf_arr
+        )
         self.poi_names = poi_names
         self.poi_pixel_xys = poi_pixel_xys
 
@@ -47,15 +49,17 @@ class SolweigRunQgis(SolweigRun):
         with open(output_path, "w") as f:
             f.write("\t".join(header) + "\n")
             for result in self.poi_pixel_xys:
-                lng = result["col_idx"] * self.dsm_trf_arr[1] + self.dsm_trf_arr[0]
-                lat = result["row_idx"] * self.dsm_trf_arr[1] + self.dsm_trf_arr[3]
+                lng = result["col_idx"] * self.raster_data.trf_arr[1] + self.raster_data.trf_arr[0]
+                lat = result["row_idx"] * self.raster_data.trf_arr[1] + self.raster_data.trf_arr[3]
                 row_values = list(result.values()) + [lng, lat]
                 f.write("\t".join(map(str, row_values)) + "\n")
 
     def load_woi_data(self) -> Tuple[Any, Any]:
         """Load walls of interest (WOIs) from a file."""
-        scale = 1 / self.dsm_trf_arr[1]
-        woi_names, woi_pixel_xys = pointOfInterest(self.config.woi_file, self.config.woi_field, scale, self.dsm_trf_arr)
+        scale = 1 / self.raster_data.trf_arr[1]
+        woi_names, woi_pixel_xys = pointOfInterest(
+            self.config.woi_file, self.config.woi_field, scale, self.raster_data.trf_arr
+        )
         self.woi_names = woi_names
         self.woi_pixel_xys = woi_pixel_xys
 
@@ -70,7 +74,7 @@ class SolweigRunQgis(SolweigRun):
         with open(output_path, "w") as f:
             f.write("\t".join(header) + "\n")
             for result in self.woi_pixel_xys:
-                lng = result["col_idx"] * self.dsm_trf_arr[1] + self.dsm_trf_arr[0]
-                lat = result["row_idx"] * self.dsm_trf_arr[1] + self.dsm_trf_arr[3]
+                lng = result["col_idx"] * self.raster_data.trf_arr[1] + self.raster_data.trf_arr[0]
+                lat = result["row_idx"] * self.raster_data.trf_arr[1] + self.raster_data.trf_arr[3]
                 row_values = list(result.values()) + [lng, lat]
                 f.write("\t".join(map(str, row_values)) + "\n")

@@ -17,7 +17,7 @@ except ImportError:
     PLT = False
 
 from ... import common
-from ...class_configs import EnvironData, ShadowMatrices, SolweigConfig, SvfData, TgMaps, Vegetation, WallsData
+from ...class_configs import EnvironData, RasterData, ShadowMatrices, SolweigConfig, SvfData, TgMaps, WallsData
 from . import PET_calculations
 from . import Solweig_2025a_calc_forprocessing as so
 from . import UTCI_calculations as utci
@@ -48,22 +48,12 @@ class SolweigRun:
     woi_names: List[Any] = []
     woi_pixel_xys: Optional[np.ndarray]
     woi_results = []
-    dsm_arr: np.ndarray
-    dsm_trf_arr: np.ndarray
-    dsm_crs_wkt: str
-    dsm_nd_val: float
-    scale: float
-    rows: int
-    cols: int
+    raster_data: RasterData
     location: Dict[str, float]
     svf_data: SvfData
     environ_data: EnvironData
     tg_maps: TgMaps
     shadow_mats: ShadowMatrices
-    vegetation: Vegetation
-    buildings: np.ndarray
-    wallheight: np.ndarray
-    wallaspect: np.ndarray
     walls_data: WallsData
 
     def __init__(self, config: SolweigConfig, params_json_path: str):
@@ -91,91 +81,17 @@ class SolweigRun:
                 self.params = dict_to_namespace(params_dict)
         except Exception as e:
             raise RuntimeError(f"Failed to load parameters from {params_json_path}: {e}")
-        # Load DSM
-        self.dsm_arr, self.dsm_trf_arr, self.dsm_crs_wkt, self.dsm_nd_val = common.load_raster(
-            self.config.dsm_path, bbox=None
-        )
-        logger.info("DSM loaded from %s", self.config.dsm_path)
-        self.scale = 1 / self.dsm_trf_arr[1]
-        self.rows = self.dsm_arr.shape[0]
-        self.cols = self.dsm_arr.shape[1]
-
-        left_x = self.dsm_trf_arr[0]
-        top_y = self.dsm_trf_arr[3]
-        lng, lat = common.xy_to_lnglat(self.dsm_crs_wkt, left_x, top_y)
-        alt = np.median(self.dsm_arr)
+        # Initialize SVF and Raster data
+        self.svf_data = SvfData(self.config)
+        self.raster_data = RasterData(self.config, self.params, self.svf_data)
+        # Location data
+        left_x = self.raster_data.trf_arr[0]
+        top_y = self.raster_data.trf_arr[3]
+        lng, lat = common.xy_to_lnglat(self.raster_data.crs_wkt, left_x, top_y)
+        alt = np.median(self.raster_data.dsm_arr)
         if alt < 0:
             alt = 3
         self.location = {"longitude": lng, "latitude": lat, "altitude": alt}
-
-        self.dsm_arr[self.dsm_arr == self.dsm_nd_val] = 0.0
-        if self.dsm_arr.min() < 0:
-            dsmraise = np.abs(self.dsm_arr.min())
-            self.dsm_arr = self.dsm_arr + dsmraise
-        else:
-            dsmraise = 0
-
-        # DEM
-        # TODO: Is DEM always provided?
-        if self.config.dem_path:
-            dem_path_str = str(common.check_path(self.config.dem_path))
-            dem, _, _, dem_nd_val = common.load_raster(dem_path_str, bbox=None)
-            logger.info("DEM loaded from %s", self.config.dem_path)
-            dem[dem == dem_nd_val] = 0.0
-            # TODO: Check if this is needed re DSM ramifications
-            if dem.min() < 0:
-                demraise = np.abs(dem.min())
-                dem = dem + demraise
-
-        # Land cover
-        if self.config.use_landcover:
-            lc_path_str = str(common.check_path(self.config.lc_path))
-            self.lcgrid, _, _, _ = common.load_raster(lc_path_str, bbox=None)
-            logger.info("Land cover loaded from %s", self.config.lc_path)
-        else:
-            self.lcgrid = None
-
-        # Buildings from land cover option
-        # TODO: Check intended logic here
-        if not self.config.use_dem_for_buildings and self.lcgrid is not None:
-            # Create building boolean raster from either land cover if no DEM is used
-            buildings = np.copy(self.lcgrid)
-            buildings[buildings == 7] = 1
-            buildings[buildings == 6] = 1
-            buildings[buildings == 5] = 1
-            buildings[buildings == 4] = 1
-            buildings[buildings == 3] = 1
-            buildings[buildings == 2] = 0
-        elif self.config.use_dem_for_buildings:
-            buildings = self.dsm_arr - dem
-            buildings[buildings < 2.0] = 1.0
-            buildings[buildings >= 2.0] = 0.0
-        else:
-            raise ValueError("No DEM or buildings data available.")
-        self.buildings = buildings
-        # Save buildings raster if requested
-        if self.config.save_buildings:
-            common.save_raster(
-                self.config.output_dir + "/buildings.tif",
-                buildings,
-                self.dsm_trf_arr,
-                self.dsm_crs_wkt,
-                self.dsm_nd_val,
-            )
-            logger.info("Buildings raster saved to %s/buildings.tif", self.config.output_dir)
-
-        # Load SVF data
-        self.svf_data = SvfData(self.config)
-        logger.info("SVF data loaded")
-
-        self.vegetation = Vegetation(self.config, self.params, self.rows, self.cols, self.svf_data, self.dsm_arr)
-        logger.info("Vegetation data initialized")
-
-        # Load walls
-        self.wallheight, _, _, _ = common.load_raster(self.config.wh_path, bbox=None)
-        self.wallaspect, _, _, _ = common.load_raster(self.config.wa_path, bbox=None)
-        logger.info("Wall rasters loaded")
-
         # weather data
         if self.config.use_epw_file:
             self.environ_data = self.load_epw_weather()
@@ -183,20 +99,20 @@ class SolweigRun:
         else:
             self.environ_data = self.load_met_weather(header_rows=1, delim=" ")
             logger.info("Weather data loaded from MET file")
-
         # POIs check
         if self.config.poi_path:
             self.load_poi_data()
             logger.info("POI data loaded from %s", self.config.poi_path)
-
         # Import shadow matrices (Anisotropic sky)
-        self.shadow_mats = ShadowMatrices(self.config, self.params, self.rows, self.cols, self.svf_data)
+        self.shadow_mats = ShadowMatrices(self.config, self.params, self.raster_data, self.svf_data)
         logger.info("Shadow matrices initialized")
-
         # % Ts parameterisation maps
-        self.tg_maps = TgMaps(self.config.use_landcover, self.lcgrid, self.params, self.rows, self.cols)
+        self.tg_maps = TgMaps(
+            self.config.use_landcover,
+            self.params,
+            self.raster_data,
+        )
         logger.info("TgMaps initialized")
-
         # Import data for wall temperature parameterization
         # Use wall of interest
         if self.config.woi_path:
@@ -205,13 +121,9 @@ class SolweigRun:
         self.walls_data = WallsData(
             self.config,
             self.params,
-            self.scale,
-            self.rows,
-            self.cols,
+            self.raster_data,
             self.environ_data,
             self.tg_maps,
-            self.dsm_arr,
-            self.lcgrid,
         )
         logger.info("WallsData initialized")
 
@@ -334,10 +246,10 @@ class SolweigRun:
         """
         return so.Solweig_2025a_calc(
             iter,
-            self.dsm_arr,
-            self.scale,
-            self.rows,
-            self.cols,
+            self.raster_data.dsm_arr,
+            self.raster_data.scale,
+            self.raster_data.rows,
+            self.raster_data.cols,
             self.svf_data.svf,
             self.svf_data.svf_north,
             self.svf_data.svf_west,
@@ -353,8 +265,8 @@ class SolweigRun:
             self.svf_data.svf_veg_blocks_bldg_sh_south,
             self.svf_data.svf_veg_blocks_bldg_sh_west,
             self.svf_data.svf_veg_blocks_bldg_sh_north,
-            self.vegetation.vegdsm,
-            self.vegetation.vegdsm2,
+            self.raster_data.vegdsm,
+            self.raster_data.vegdsm2,
             self.params.Albedo.Effective.Value.Walls,
             self.params.Tmrt_params.Value.absK,
             self.params.Tmrt_params.Value.absL,
@@ -368,15 +280,15 @@ class SolweigRun:
             self.environ_data.jday[iter],
             self.config.use_veg_dem,
             self.config.only_global,
-            self.buildings,
+            self.raster_data.buildings,
             self.location,
             self.environ_data.psi[iter],
             self.config.use_landcover,
-            self.lcgrid,
+            self.raster_data.lcgrid,
             self.environ_data.dectime[iter],
             self.environ_data.altmax[iter],
-            self.wallaspect,
-            self.wallheight,
+            self.raster_data.wallaspect,
+            self.raster_data.wallheight,
             int(self.config.person_cylinder),  # expects int though should work either way
             elvis,
             self.environ_data.Ta[iter],
@@ -385,8 +297,8 @@ class SolweigRun:
             self.environ_data.radD[iter],
             self.environ_data.radI[iter],
             self.environ_data.P[iter],
-            self.vegetation.amaxvalue,
-            self.vegetation.bush,
+            self.raster_data.amaxvalue,
+            self.raster_data.bush,
             self.environ_data.Twater[iter],
             self.tg_maps.TgK,
             self.tg_maps.Tstart,
@@ -399,7 +311,7 @@ class SolweigRun:
             first,
             second,
             self.svf_data.svfalfa,
-            self.vegetation.svfbuveg,
+            self.raster_data.svfbuveg,
             firstdaytime,
             timeadd,
             timestepdec,
@@ -458,7 +370,7 @@ class SolweigRun:
             first_unique_day = self.environ_data.DOY.copy()
             I0_array = np.zeros_like(self.environ_data.DOY)
         # For Tmrt plot
-        tmrtplot = np.zeros((self.rows, self.cols))
+        tmrtplot = np.zeros((self.raster_data.rows, self.raster_data.cols))
         # Number of iterations
         num = len(self.environ_data.Ta)
         # Prepare progress tracking
@@ -596,7 +508,7 @@ class SolweigRun:
                         "CI": CI,
                         "Shadow": shadow[row_idx, col_idx],
                         "SVF_b": self.svf_data.svf[row_idx, col_idx],
-                        "SVF_bv": self.vegetation.svfbuveg[row_idx, col_idx],
+                        "SVF_bv": self.raster_data.svfbuveg[row_idx, col_idx],
                         "KsideI": KsideI[row_idx, col_idx],
                     }
                     # Recalculating wind speed based on powerlaw
@@ -669,11 +581,11 @@ class SolweigRun:
                     netcdf_output = self.config.output_dir + "/walls.nc"
                     walls_as_netcdf(
                         voxelTable,
-                        self.rows,
-                        self.cols,
+                        self.raster_data.rows,
+                        self.raster_data.cols,
                         self.walls_data.met_for_xarray,
                         i,
-                        self.dsm_arr,
+                        self.raster_data.dsm_arr,
                         self.config.dsm_path,
                         netcdf_output,
                     )
@@ -694,57 +606,57 @@ class SolweigRun:
                 common.save_raster(
                     self.config.output_dir + "/Tmrt_" + time_code + ".tif",
                     Tmrt,
-                    self.dsm_trf_arr,
-                    self.dsm_crs_wkt,
-                    self.dsm_nd_val,
+                    self.raster_data.trf_arr,
+                    self.raster_data.crs_wkt,
+                    self.raster_data.nd_val,
                 )
             if self.config.output_kup:
                 common.save_raster(
                     self.config.output_dir + "/Kup_" + time_code + ".tif",
                     Kup,
-                    self.dsm_trf_arr,
-                    self.dsm_crs_wkt,
-                    self.dsm_nd_val,
+                    self.raster_data.trf_arr,
+                    self.raster_data.crs_wkt,
+                    self.raster_data.nd_val,
                 )
             if self.config.output_kdown:
                 common.save_raster(
                     self.config.output_dir + "/Kdown_" + time_code + ".tif",
                     Kdown,
-                    self.dsm_trf_arr,
-                    self.dsm_crs_wkt,
-                    self.dsm_nd_val,
+                    self.raster_data.trf_arr,
+                    self.raster_data.crs_wkt,
+                    self.raster_data.nd_val,
                 )
             if self.config.output_lup:
                 common.save_raster(
                     self.config.output_dir + "/Lup_" + time_code + ".tif",
                     Lup,
-                    self.dsm_trf_arr,
-                    self.dsm_crs_wkt,
-                    self.dsm_nd_val,
+                    self.raster_data.trf_arr,
+                    self.raster_data.crs_wkt,
+                    self.raster_data.nd_val,
                 )
             if self.config.output_ldown:
                 common.save_raster(
                     self.config.output_dir + "/Ldown_" + time_code + ".tif",
                     Ldown,
-                    self.dsm_trf_arr,
-                    self.dsm_crs_wkt,
-                    self.dsm_nd_val,
+                    self.raster_data.trf_arr,
+                    self.raster_data.crs_wkt,
+                    self.raster_data.nd_val,
                 )
             if self.config.output_sh:
                 common.save_raster(
                     self.config.output_dir + "/Shadow_" + time_code + ".tif",
                     shadow,
-                    self.dsm_trf_arr,
-                    self.dsm_crs_wkt,
-                    self.dsm_nd_val,
+                    self.raster_data.trf_arr,
+                    self.raster_data.crs_wkt,
+                    self.raster_data.nd_val,
                 )
             if self.config.output_kdiff:
                 common.save_raster(
                     self.config.output_dir + "/Kdiff_" + time_code + ".tif",
                     dRad,
-                    self.dsm_trf_arr,
-                    self.dsm_crs_wkt,
-                    self.dsm_nd_val,
+                    self.raster_data.trf_arr,
+                    self.raster_data.crs_wkt,
+                    self.raster_data.nd_val,
                 )
 
             # Sky view image of patches
@@ -771,11 +683,11 @@ class SolweigRun:
 
         # Save POI results
         if self.poi_results:
-            self.save_poi_results(self.dsm_trf_arr, self.dsm_crs_wkt)
+            self.save_poi_results(self.raster_data.trf_arr, self.raster_data.crs_wkt)
 
         # Save WOI results
         if self.woi_results:
-            self.save_woi_results(self.dsm_trf_arr, self.dsm_crs_wkt)
+            self.save_woi_results(self.raster_data.trf_arr, self.raster_data.crs_wkt)
 
         # Save Tree Planter results
         if self.config.output_tree_planter:
@@ -846,7 +758,7 @@ class SolweigRun:
         common.save_raster(
             self.config.output_dir + "/Tmrt_average.tif",
             tmrtplot,
-            self.dsm_trf_arr,
-            self.dsm_crs_wkt,
-            self.dsm_nd_val,
+            self.raster_data.trf_arr,
+            self.raster_data.crs_wkt,
+            self.raster_data.nd_val,
         )

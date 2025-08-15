@@ -24,89 +24,6 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-class TgMaps:
-    """
-    Get land cover properties for Tg wave (land cover scheme based on Bogren et al. 2000,
-    explained in Lindberg et al., 2008 and Lindberg, Onomura & Grimmond, 2016)
-    """
-
-    TgK: np.ndarray
-    Tstart: np.ndarray
-    alb_grid: np.ndarray
-    emis_grid: np.ndarray
-    TgK_wall: float
-    Tstart_wall: float
-    TmaxLST: Union[np.ndarray, float]
-    TmaxLST_wall: float
-    Knight: np.ndarray
-    Tgmap1: np.ndarray
-    Tgmap1E: np.ndarray
-    Tgmap1S: np.ndarray
-    Tgmap1W: np.ndarray
-    Tgmap1N: np.ndarray
-    TgOut1: np.ndarray
-
-    def __init__(self, use_landcover: bool, lc_grid: Optional[np.ndarray], model_params, rows: int, cols: int):
-        """
-        This is a vectorized version that avoids looping over pixels.
-        """
-        # Initialization of maps
-        self.Knight = np.zeros((rows, cols))
-        self.Tgmap1 = np.zeros((rows, cols))
-        self.Tgmap1E = np.zeros((rows, cols))
-        self.Tgmap1S = np.zeros((rows, cols))
-        self.Tgmap1W = np.zeros((rows, cols))
-        self.Tgmap1N = np.zeros((rows, cols))
-        self.TgOut1 = np.zeros((rows, cols))
-
-        # Set up the Tg maps based on whether land cover is used
-        if not use_landcover:
-            self.TgK = self.Knight + model_params.Ts_deg.Value.Cobble_stone_2014a
-            self.Tstart = self.Knight - model_params.Tstart.Value.Cobble_stone_2014a
-            self.alb_grid = self.Knight + model_params.Albedo.Effective.Value.Cobble_stone_2014a
-            self.emis_grid = self.Knight + model_params.Emissivity.Value.Cobble_stone_2014a
-            self.TmaxLST = model_params.TmaxLST.Value.Cobble_stone_2014a  # Assuming this is a float
-            self.TgK_wall = model_params.Ts_deg.Value.Walls
-            self.Tstart_wall = model_params.Tstart.Value.Walls
-            self.TmaxLST_wall = model_params.TmaxLST.Value.Walls
-            logger.info("TgMaps initialized with default (no land cover) parameters.")
-        else:
-            # Copy land cover grid
-            lc_grid = np.copy(lc_grid)
-            # Sanitize
-            lc_grid[lc_grid >= 100] = 2
-            # Get unique land cover IDs and filter them
-            unique_ids = np.unique(lc_grid)
-            valid_ids = unique_ids[unique_ids <= 7].astype(int)
-            # Initialize output grids by copying the original land cover grid
-            self.TgK = np.copy(lc_grid)
-            self.Tstart = np.copy(lc_grid)
-            self.alb_grid = np.copy(lc_grid)
-            self.emis_grid = np.copy(lc_grid)
-            self.TmaxLST = np.copy(lc_grid)
-            # Create mapping dictionaries from land cover ID to parameter values
-            id_to_name = {i: getattr(model_params.Names.Value, str(i)) for i in valid_ids}
-            name_to_tstart = {name: getattr(model_params.Tstart.Value, name) for name in id_to_name.values()}
-            name_to_albedo = {name: getattr(model_params.Albedo.Effective.Value, name) for name in id_to_name.values()}
-            name_to_emissivity = {name: getattr(model_params.Emissivity.Value, name) for name in id_to_name.values()}
-            name_to_tmaxlst = {name: getattr(model_params.TmaxLST.Value, name) for name in id_to_name.values()}
-            name_to_tsdeg = {name: getattr(model_params.Ts_deg.Value, name) for name in id_to_name.values()}
-            # Perform replacements for each valid land cover ID
-            for i in valid_ids:
-                mask = lc_grid == i
-                name = id_to_name[i]
-                self.Tstart[mask] = name_to_tstart[name]
-                self.alb_grid[mask] = name_to_albedo[name]
-                self.emis_grid[mask] = name_to_emissivity[name]
-                self.TmaxLST[mask] = name_to_tmaxlst[name]
-                self.TgK[mask] = name_to_tsdeg[name]
-            # Get wall-specific parameters
-            self.TgK_wall = getattr(model_params.Ts_deg.Value, "Walls", None)
-            self.Tstart_wall = getattr(model_params.Tstart.Value, "Walls", None)
-            self.TmaxLST_wall = getattr(model_params.TmaxLST.Value, "Walls", None)
-            logger.info("TgMaps initialized using land cover grid.")
-
-
 @dataclass
 class SolweigConfig:
     """Configuration class for SOLWEIG parameters."""
@@ -508,6 +425,187 @@ class SvfData:
         logger.info("SVF data loaded and processed.")
 
 
+class RasterData:
+    """Class to represent vegetation parameters."""
+
+    amaxvalue: float
+    dsm_arr: np.ndarray
+    crs_wkt: str
+    trf_arr: np.ndarray
+    nd_val: float
+    scale: float
+    rows: int
+    cols: int
+    wallheight: np.ndarray
+    wallaspect: np.ndarray
+    dem: Optional[np.ndarray]
+    vegdsm: Optional[np.ndarray]
+    vegdsm2: Optional[np.ndarray]
+    bush: np.ndarray
+    svfbuveg: np.ndarray
+    lcgrid: Optional[np.ndarray]
+    buildings: Optional[np.ndarray]
+
+    def __init__(self, model_configs: SolweigConfig, model_params, svf_data: SvfData):
+        # Load DSM
+        self.dsm_arr, self.dsm_trf_arr, self.dsm_crs_wkt, self.dsm_nd_val = common.load_raster(
+            model_configs.dsm_path, bbox=None
+        )
+        logger.info("DSM loaded from %s", model_configs.dsm_path)
+        self.scale = 1 / self.dsm_trf_arr[1]
+        self.rows = self.dsm_arr.shape[0]
+        self.cols = self.dsm_arr.shape[1]
+        self.dsm_arr[self.dsm_arr == self.nd_val] = 0.0
+        if self.dsm_arr.min() < 0:
+            dsmraise = np.abs(self.dsm_arr.min())
+            self.dsm_arr = self.dsm_arr + dsmraise
+        else:
+            dsmraise = 0
+        # WALLS
+        # heights
+        self.wallheight, wh_trf, wh_crs, _ = common.load_raster(model_configs.wh_path, bbox=None)
+        if not self.wallheight.shape == self.dsm_arr.shape:
+            raise ValueError("Mismatching raster shapes for wall heights and DSM.")
+        if not np.allclose(self.dsm_trf_arr, wh_trf):
+            raise ValueError("Mismatching spatial transform for wall heights and DSM.")
+        if not self.dsm_crs_wkt == wh_crs:
+            raise ValueError("Mismatching CRS for wall heights and DSM.")
+        logger.info("Wall heights loaded")
+        # aspects
+        self.wallaspect, wa_trf, wa_crs, _ = common.load_raster(model_configs.wa_path, bbox=None)
+        if not self.wallaspect.shape == self.dsm_arr.shape:
+            raise ValueError("Mismatching raster shapes for wall aspects and DSM.")
+        if not np.allclose(self.dsm_trf_arr, wa_trf):
+            raise ValueError("Mismatching spatial transform for wall aspects and DSM.")
+        if not self.dsm_crs_wkt == wa_crs:
+            raise ValueError("Mismatching CRS for wall aspects and DSM.")
+        logger.info("Wall aspects loaded")
+        # DEM
+        # TODO: Is DEM always provided?
+        if model_configs.dem_path:
+            dem_path_str = str(common.check_path(model_configs.dem_path))
+            dem, dem_trf, dem_crs, dem_nd_val = common.load_raster(dem_path_str, bbox=None)
+            if not dem.shape == self.dsm_arr.shape:
+                raise ValueError("Mismatching raster shapes for DEM and CDSM.")
+            if dem_crs is not None and dem_crs != self.dsm_crs_wkt:
+                raise ValueError("Mismatching CRS for DEM and CDSM.")
+            if not np.allclose(self.dsm_trf_arr, dem_trf):
+                raise ValueError("Mismatching spatial transform for DEM and CDSM.")
+            logger.info("DEM loaded from %s", model_configs.dem_path)
+            dem[dem == dem_nd_val] = 0.0
+            # TODO: Check if this is needed re DSM ramifications
+            if dem.min() < 0:
+                demraise = np.abs(dem.min())
+                dem = dem + demraise
+            self.dem = dem
+        else:
+            self.dem = None
+        # Vegetation
+        if model_configs.use_veg_dem:
+            vegdsm, vegdsm_trf, vegdsm_crs, _ = common.load_raster(model_configs.cdsm_path, bbox=None)
+            if not vegdsm.shape == self.dsm_arr.shape:
+                raise ValueError("Mismatching raster shapes for DSM and CDSM.")
+            if vegdsm_crs is not None and vegdsm_crs != self.dsm_crs_wkt:
+                raise ValueError("Mismatching CRS for DSM and CDSM.")
+            if not np.allclose(self.dsm_trf_arr, vegdsm_trf):
+                raise ValueError("Mismatching spatial transform for DSM and CDSM.")
+            # CDSM boosting
+            vegdsm_zero_ratio = np.sum(vegdsm <= 0) / (self.rows * self.cols)
+            if vegdsm_zero_ratio > 0.05:
+                logger.warning("CDSM appears to have no DEM information: boosting CDSM to DSM heights.")
+                # Set vegetated pixels to DSM + CDSM otherwise zero
+                vegdsm = np.where(vegdsm > 0, self.dsm_arr + dsmraise + vegdsm, 0)
+            self.vegdsm = vegdsm
+            logger.info("Vegetation DSM loaded from %s", model_configs.cdsm_path)
+
+            if model_configs.tdsm_path:
+                vegdsm2, vegdsm2_trf, vegdsm2_crs, _ = common.load_raster(model_configs.tdsm_path, bbox=None)
+                if not vegdsm2.shape == self.dsm_arr.shape:
+                    raise ValueError("Mismatching raster shapes for DSM and CDSM.")
+                if vegdsm2_crs is not None and vegdsm2_crs != self.dsm_crs_wkt:
+                    raise ValueError("Mismatching CRS for DSM and CDSM.")
+                if not np.allclose(self.dsm_trf_arr, vegdsm2_trf):
+                    raise ValueError("Mismatching spatial transform for DSM and CDSM.")
+                # CDSM2 boosting
+                vegdsm2_zero_ratio = np.sum(vegdsm2 <= 0) / (self.rows * self.cols)
+                if vegdsm2_zero_ratio > 0.05:
+                    logger.warning("CDSM2 appears to have no DEM information: boosting CDSM2 to DSM heights.")
+                    # Set vegetated pixels to DSM + CDSM2 otherwise zero
+                    vegdsm2 = np.where(vegdsm2 > 0, self.dsm_arr + dsmraise + vegdsm2, 0)
+                self.vegdsm2 = vegdsm2
+                logger.info("Tree DSM loaded from %s", model_configs.tdsm_path)
+            else:
+                self.vegdsm2 = self.vegdsm * model_params.Tree_settings.Value.Trunk_ratio
+                logger.info("Tree DSM not provided; using trunk ratio for vegdsm2.")
+        else:
+            self.vegdsm = None
+            self.vegdsm2 = None
+            logger.info("Vegetation DEM not used; vegetation arrays set to None.")
+
+        self.amaxvalue = self.dsm_arr.max() - self.dsm_arr.min()
+        if model_configs.use_veg_dem:
+            vegmax = self.vegdsm.max()
+            self.amaxvalue = np.maximum(self.amaxvalue, vegmax)
+            # % Bush separation
+            self.bush = np.logical_not(self.vegdsm2 * self.vegdsm) * self.vegdsm
+            self.svfbuveg = svf_data.svf - (1.0 - svf_data.svf_veg) * (
+                1.0 - model_params.Tree_settings.Value.Transmissivity
+            )
+            logger.info("Vegetation parameters calculated.")
+        else:
+            self.svfbuveg = svf_data.svf
+            self.bush = np.zeros([self.rows, self.cols])
+            logger.info("Vegetation parameters set to defaults (no vegetation DSM).")
+
+        # Land cover
+        if model_configs.use_landcover:
+            lc_path_str = str(common.check_path(model_configs.lc_path))
+            self.lcgrid, lc_trf, lc_crs, _ = common.load_raster(lc_path_str, bbox=None)
+            if not self.lcgrid.shape == self.dsm_arr.shape:
+                raise ValueError("Mismatching raster shapes for land cover and DSM.")
+            if lc_crs is not None and lc_crs != self.dsm_crs_wkt:
+                raise ValueError("Mismatching CRS for land cover and DSM.")
+            if not np.allclose(self.dsm_trf_arr, lc_trf):
+                raise ValueError("Mismatching spatial transform for land cover and DSM.")
+            logger.info("Land cover loaded from %s", model_configs.lc_path)
+        else:
+            self.lcgrid = None
+            logger.info("Land cover not used; lcgrid set to None.")
+
+        # Buildings from land cover option
+        # TODO: Check intended logic here
+        if not model_configs.use_dem_for_buildings and self.lcgrid is not None:
+            # Create building boolean raster from either land cover if no DEM is used
+            buildings = np.copy(self.lcgrid)
+            buildings[buildings == 7] = 1
+            buildings[buildings == 6] = 1
+            buildings[buildings == 5] = 1
+            buildings[buildings == 4] = 1
+            buildings[buildings == 3] = 1
+            buildings[buildings == 2] = 0
+            self.buildings = buildings
+            logger.info("Buildings raster created from land cover data.")
+        elif model_configs.use_dem_for_buildings:
+            buildings = self.dsm_arr - self.dem
+            buildings[buildings < 2.0] = 1.0
+            buildings[buildings >= 2.0] = 0.0
+            self.buildings = buildings
+            logger.info("Buildings raster created from DSM and DEM data.")
+        else:
+            self.buildings = None
+            logger.info("Buildings raster not created.")
+        # Save buildings raster if requested
+        if self.buildings is not None and model_configs.save_buildings:
+            common.save_raster(
+                model_configs.output_dir + "/buildings.tif",
+                self.buildings,
+                self.trf_arr,
+                self.crs_wkt,
+                self.nd_val,
+            )
+            logger.info("Buildings raster saved to %s/buildings.tif", model_configs.output_dir)
+
+
 class ShadowMatrices:
     """Shadow matrices and related anisotropic sky data."""
 
@@ -524,8 +622,7 @@ class ShadowMatrices:
         self,
         model_configs: SolweigConfig,
         model_params,
-        rows: int,
-        cols: int,
+        raster_data: RasterData,
         svf_data: SvfData,
     ):
         self.use_aniso = model_configs.use_aniso
@@ -537,7 +634,7 @@ class ShadowMatrices:
             self.vegshmat = data["vegshadowmat"]
             self.vbshvegshmat = data["vbshmat"]
             if model_configs.use_veg_dem:
-                self.diffsh = np.zeros((rows, cols, self.shmat.shape[2]))
+                self.diffsh = np.zeros((raster_data.rows, raster_data.cols, self.shmat.shape[2]))
                 for i in range(0, self.shmat.shape[2]):
                     self.diffsh[:, :, i] = self.shmat[:, :, i] - (1 - self.vegshmat[:, :, i]) * (
                         1 - model_params.Tree_settings.Value.Transmissivity
@@ -576,6 +673,91 @@ class ShadowMatrices:
             logger.info("Anisotropic sky not used; shadow matrices not loaded.")
 
 
+class TgMaps:
+    """
+    Get land cover properties for Tg wave (land cover scheme based on Bogren et al. 2000,
+    explained in Lindberg et al., 2008 and Lindberg, Onomura & Grimmond, 2016)
+    """
+
+    TgK: np.ndarray
+    Tstart: np.ndarray
+    alb_grid: np.ndarray
+    emis_grid: np.ndarray
+    TgK_wall: float
+    Tstart_wall: float
+    TmaxLST: Union[np.ndarray, float]
+    TmaxLST_wall: float
+    Knight: np.ndarray
+    Tgmap1: np.ndarray
+    Tgmap1E: np.ndarray
+    Tgmap1S: np.ndarray
+    Tgmap1W: np.ndarray
+    Tgmap1N: np.ndarray
+    TgOut1: np.ndarray
+
+    def __init__(self, use_landcover: bool, model_params, raster_data: RasterData):
+        """
+        This is a vectorized version that avoids looping over pixels.
+        """
+        # Initialization of maps
+        self.Knight = np.zeros((raster_data.rows, raster_data.cols))
+        self.Tgmap1 = np.zeros((raster_data.rows, raster_data.cols))
+        self.Tgmap1E = np.zeros((raster_data.rows, raster_data.cols))
+        self.Tgmap1S = np.zeros((raster_data.rows, raster_data.cols))
+        self.Tgmap1W = np.zeros((raster_data.rows, raster_data.cols))
+        self.Tgmap1N = np.zeros((raster_data.rows, raster_data.cols))
+        self.TgOut1 = np.zeros((raster_data.rows, raster_data.cols))
+
+        # Set up the Tg maps based on whether land cover is used
+        if use_landcover is False:
+            self.TgK = self.Knight + model_params.Ts_deg.Value.Cobble_stone_2014a
+            self.Tstart = self.Knight - model_params.Tstart.Value.Cobble_stone_2014a
+            self.alb_grid = self.Knight + model_params.Albedo.Effective.Value.Cobble_stone_2014a
+            self.emis_grid = self.Knight + model_params.Emissivity.Value.Cobble_stone_2014a
+            self.TmaxLST = model_params.TmaxLST.Value.Cobble_stone_2014a  # Assuming this is a float
+            self.TgK_wall = model_params.Ts_deg.Value.Walls
+            self.Tstart_wall = model_params.Tstart.Value.Walls
+            self.TmaxLST_wall = model_params.TmaxLST.Value.Walls
+            logger.info("TgMaps initialized with default (no land cover) parameters.")
+        else:
+            if raster_data.lcgrid is None:
+                raise ValueError("Land cover grid is not available.")
+            # Copy land cover grid
+            lc_grid = np.copy(raster_data.lcgrid)
+            # Sanitize
+            lc_grid[lc_grid >= 100] = 2
+            # Get unique land cover IDs and filter them
+            unique_ids = np.unique(lc_grid)
+            valid_ids = unique_ids[unique_ids <= 7].astype(int)
+            # Initialize output grids by copying the original land cover grid
+            self.TgK = np.copy(lc_grid)
+            self.Tstart = np.copy(lc_grid)
+            self.alb_grid = np.copy(lc_grid)
+            self.emis_grid = np.copy(lc_grid)
+            self.TmaxLST = np.copy(lc_grid)
+            # Create mapping dictionaries from land cover ID to parameter values
+            id_to_name = {i: getattr(model_params.Names.Value, str(i)) for i in valid_ids}
+            name_to_tstart = {name: getattr(model_params.Tstart.Value, name) for name in id_to_name.values()}
+            name_to_albedo = {name: getattr(model_params.Albedo.Effective.Value, name) for name in id_to_name.values()}
+            name_to_emissivity = {name: getattr(model_params.Emissivity.Value, name) for name in id_to_name.values()}
+            name_to_tmaxlst = {name: getattr(model_params.TmaxLST.Value, name) for name in id_to_name.values()}
+            name_to_tsdeg = {name: getattr(model_params.Ts_deg.Value, name) for name in id_to_name.values()}
+            # Perform replacements for each valid land cover ID
+            for i in valid_ids:
+                mask = lc_grid == i
+                name = id_to_name[i]
+                self.Tstart[mask] = name_to_tstart[name]
+                self.alb_grid[mask] = name_to_albedo[name]
+                self.emis_grid[mask] = name_to_emissivity[name]
+                self.TmaxLST[mask] = name_to_tmaxlst[name]
+                self.TgK[mask] = name_to_tsdeg[name]
+            # Get wall-specific parameters
+            self.TgK_wall = getattr(model_params.Ts_deg.Value, "Walls", None)
+            self.Tstart_wall = getattr(model_params.Tstart.Value, "Walls", None)
+            self.TmaxLST_wall = getattr(model_params.TmaxLST.Value, "Walls", None)
+            logger.info("TgMaps initialized using land cover grid.")
+
+
 class WallsData:
     """Class to represent wall characteristics and configurations."""
 
@@ -590,13 +772,9 @@ class WallsData:
         self,
         model_configs: SolweigConfig,
         model_params,
-        scale: float,
-        rows: int,
-        cols: int,
+        raster_data: RasterData,
         weather_data: EnvironData,
         tg_maps: TgMaps,
-        dsm_arr: np.ndarray,
-        lcgrid: Optional[np.ndarray],
     ):
         if model_configs.use_wall_scheme:
             logger.info("Loading wall scheme data from %s", model_configs.wall_path)
@@ -610,10 +788,10 @@ class WallsData:
             # wall_type_standalone = {"Brick_wall": "100", "Concrete_wall": "101", "Wood_wall": "102"}
             wall_type = model_configs.wall_type
             # Get heights of walls including corners
-            self.walls_scheme = wa.findwalls_sp(dsm_arr, 2, np.array([[1, 1, 1], [1, 0, 1], [1, 1, 1]]))
+            self.walls_scheme = wa.findwalls_sp(raster_data.dsm_arr, 2, np.array([[1, 1, 1], [1, 0, 1], [1, 1, 1]]))
             # Get aspects of walls including corners
             self.dirwalls_scheme = wa.filter1Goodwin_as_aspect_v3(
-                self.walls_scheme.copy(), scale, dsm_arr, None, 100.0 / 180.0
+                self.walls_scheme.copy(), raster_data.scale, raster_data.dsm_arr, None, 100.0 / 180.0
             )
             # Calculate timeStep
             first_timestep = (
@@ -639,8 +817,8 @@ class WallsData:
                 self.timeStep,
                 tg_maps.alb_grid,
                 model_configs.use_landcover,
-                lcgrid,
-                dsm_arr,
+                raster_data.lcgrid,
+                raster_data.dsm_arr,
             )
             # Create pandas datetime object for NetCDF output
             self.met_for_xarray = (
@@ -654,62 +832,7 @@ class WallsData:
             self.voxelMaps = None
             self.voxelTable = None
             self.timeStep = 0
-            self.walls_scheme = np.ones((rows, cols)) * 10.0
-            self.dirwalls_scheme = np.ones((rows, cols)) * 10.0
+            self.walls_scheme = np.ones((raster_data.rows, raster_data.cols)) * 10.0
+            self.dirwalls_scheme = np.ones((raster_data.rows, raster_data.cols)) * 10.0
             self.met_for_xarray = None
             logger.info("Wall scheme not used; default wall data initialized.")
-
-
-class Vegetation:
-    """Class to represent vegetation parameters."""
-
-    amaxvalue: float
-    vegdsm: np.ndarray
-    vegdsm2: np.ndarray
-    bush: np.ndarray
-    svfbuveg: np.ndarray
-
-    def __init__(
-        self,
-        model_configs: SolweigConfig,
-        model_params,
-        rows: int,
-        cols: int,
-        svf_data: SvfData,
-        dsm_arr: np.ndarray,
-    ):
-        if model_configs.use_veg_dem:
-            self.vegdsm, _, _, _ = common.load_raster(model_configs.cdsm_path, bbox=None)
-            logger.info("Vegetation DSM loaded from %s", model_configs.cdsm_path)
-            if model_configs.tdsm_path:
-                self.vegdsm2, _, _, _ = common.load_raster(model_configs.tdsm_path, bbox=None)
-                logger.info("Tree DSM loaded from %s", model_configs.tdsm_path)
-            else:
-                self.vegdsm2 = self.vegdsm * model_params.Tree_settings.Value.Trunk_ratio
-                logger.info("Tree DSM not provided; using trunk ratio for vegdsm2.")
-        else:
-            self.vegdsm = None
-            self.vegdsm2 = None
-            logger.info("Vegetation DEM not used; vegetation arrays set to None.")
-
-        if model_configs.use_veg_dem:
-            # amaxvalue
-            vegmax = self.vegdsm.max()
-            self.amaxvalue = dsm_arr.max() - dsm_arr.min()
-            self.amaxvalue = np.maximum(self.amaxvalue, vegmax)
-            # Elevation vegdsms if buildingDEM includes ground heights
-            self.vegdsm = self.vegdsm + dsm_arr
-            self.vegdsm[self.vegdsm == dsm_arr] = 0
-            self.vegdsm2 = self.vegdsm2 + dsm_arr
-            self.vegdsm2[self.vegdsm2 == dsm_arr] = 0
-            # % Bush separation
-            self.bush = np.logical_not(self.vegdsm2 * self.vegdsm) * self.vegdsm
-            self.svfbuveg = svf_data.svf - (1.0 - svf_data.svf_veg) * (
-                1.0 - model_params.Tree_settings.Value.Transmissivity
-            )
-            logger.info("Vegetation parameters calculated.")
-        else:
-            self.svfbuveg = svf_data.svf
-            self.bush = np.zeros([rows, cols])
-            self.amaxvalue = 0
-            logger.info("Vegetation parameters set to defaults (no vegetation DEM).")

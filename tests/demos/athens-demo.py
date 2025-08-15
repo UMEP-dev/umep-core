@@ -118,7 +118,7 @@ if not Path.exists(working_path / "svf"):
         bbox=bbox,
         out_dir=working_path_str + "/svf",
         cdsm_path=working_path_str + "/CDSM.tif",
-        trans_veg=5,
+        trans_veg_perc=5,
     )
 
 # %%
