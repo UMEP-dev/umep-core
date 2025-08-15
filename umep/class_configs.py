@@ -429,7 +429,7 @@ class RasterData:
     """Class to represent vegetation parameters."""
 
     amaxvalue: float
-    dsm_arr: np.ndarray
+    dsm: np.ndarray
     crs_wkt: str
     trf_arr: np.ndarray
     nd_val: float
@@ -439,8 +439,8 @@ class RasterData:
     wallheight: np.ndarray
     wallaspect: np.ndarray
     dem: Optional[np.ndarray]
-    vegdsm: Optional[np.ndarray]
-    vegdsm2: Optional[np.ndarray]
+    cdsm: Optional[np.ndarray]
+    tdsm: Optional[np.ndarray]
     bush: np.ndarray
     svfbuveg: np.ndarray
     lcgrid: Optional[np.ndarray]
@@ -448,48 +448,48 @@ class RasterData:
 
     def __init__(self, model_configs: SolweigConfig, model_params, svf_data: SvfData):
         # Load DSM
-        self.dsm_arr, self.dsm_trf_arr, self.dsm_crs_wkt, self.dsm_nd_val = common.load_raster(
-            model_configs.dsm_path, bbox=None
-        )
+        self.dsm, self.trf_arr, self.crs_wkt, self.nd_val = common.load_raster(model_configs.dsm_path, bbox=None)
         logger.info("DSM loaded from %s", model_configs.dsm_path)
-        self.scale = 1 / self.dsm_trf_arr[1]
-        self.rows = self.dsm_arr.shape[0]
-        self.cols = self.dsm_arr.shape[1]
-        self.dsm_arr[self.dsm_arr == self.nd_val] = 0.0
-        if self.dsm_arr.min() < 0:
-            dsmraise = np.abs(self.dsm_arr.min())
-            self.dsm_arr = self.dsm_arr + dsmraise
+        self.scale = 1 / self.trf_arr[1]
+        self.rows = self.dsm.shape[0]
+        self.cols = self.dsm.shape[1]
+        self.dsm[self.dsm == self.nd_val] = 0.0
+        if self.dsm.min() < 0:
+            dsmraise = np.abs(self.dsm.min())
+            self.dsm = self.dsm + dsmraise
         else:
             dsmraise = 0
+        self.amaxvalue = self.dsm.max() - self.dsm.min()
         # WALLS
         # heights
         self.wallheight, wh_trf, wh_crs, _ = common.load_raster(model_configs.wh_path, bbox=None)
-        if not self.wallheight.shape == self.dsm_arr.shape:
+        if not self.wallheight.shape == self.dsm.shape:
             raise ValueError("Mismatching raster shapes for wall heights and DSM.")
-        if not np.allclose(self.dsm_trf_arr, wh_trf):
+        if not np.allclose(self.trf_arr, wh_trf):
             raise ValueError("Mismatching spatial transform for wall heights and DSM.")
-        if not self.dsm_crs_wkt == wh_crs:
+        if not self.crs_wkt == wh_crs:
             raise ValueError("Mismatching CRS for wall heights and DSM.")
         logger.info("Wall heights loaded")
         # aspects
         self.wallaspect, wa_trf, wa_crs, _ = common.load_raster(model_configs.wa_path, bbox=None)
-        if not self.wallaspect.shape == self.dsm_arr.shape:
+        if not self.wallaspect.shape == self.dsm.shape:
             raise ValueError("Mismatching raster shapes for wall aspects and DSM.")
-        if not np.allclose(self.dsm_trf_arr, wa_trf):
+        if not np.allclose(self.trf_arr, wa_trf):
             raise ValueError("Mismatching spatial transform for wall aspects and DSM.")
-        if not self.dsm_crs_wkt == wa_crs:
+        if not self.crs_wkt == wa_crs:
             raise ValueError("Mismatching CRS for wall aspects and DSM.")
         logger.info("Wall aspects loaded")
+
         # DEM
         # TODO: Is DEM always provided?
         if model_configs.dem_path:
             dem_path_str = str(common.check_path(model_configs.dem_path))
             dem, dem_trf, dem_crs, dem_nd_val = common.load_raster(dem_path_str, bbox=None)
-            if not dem.shape == self.dsm_arr.shape:
+            if not dem.shape == self.dsm.shape:
                 raise ValueError("Mismatching raster shapes for DEM and CDSM.")
-            if dem_crs is not None and dem_crs != self.dsm_crs_wkt:
+            if dem_crs is not None and dem_crs != self.crs_wkt:
                 raise ValueError("Mismatching CRS for DEM and CDSM.")
-            if not np.allclose(self.dsm_trf_arr, dem_trf):
+            if not np.allclose(self.trf_arr, dem_trf):
                 raise ValueError("Mismatching spatial transform for DEM and CDSM.")
             logger.info("DEM loaded from %s", model_configs.dem_path)
             dem[dem == dem_nd_val] = 0.0
@@ -502,70 +502,95 @@ class RasterData:
             self.dem = None
         # Vegetation
         if model_configs.use_veg_dem:
-            vegdsm, vegdsm_trf, vegdsm_crs, _ = common.load_raster(model_configs.cdsm_path, bbox=None)
-            if not vegdsm.shape == self.dsm_arr.shape:
+            cdsm, vegdsm_trf, vegdsm_crs, _ = common.load_raster(model_configs.cdsm_path, bbox=None)
+            if not cdsm.shape == self.dsm.shape:
                 raise ValueError("Mismatching raster shapes for DSM and CDSM.")
-            if vegdsm_crs is not None and vegdsm_crs != self.dsm_crs_wkt:
+            if vegdsm_crs is not None and vegdsm_crs != self.crs_wkt:
                 raise ValueError("Mismatching CRS for DSM and CDSM.")
-            if not np.allclose(self.dsm_trf_arr, vegdsm_trf):
+            if not np.allclose(self.trf_arr, vegdsm_trf):
                 raise ValueError("Mismatching spatial transform for DSM and CDSM.")
-            # CDSM boosting
-            vegdsm_zero_ratio = np.sum(vegdsm <= 0) / (self.rows * self.cols)
-            if vegdsm_zero_ratio > 0.05:
-                logger.warning("CDSM appears to have no DEM information: boosting CDSM to DSM heights.")
-                # Set vegetated pixels to DSM + CDSM otherwise zero
-                vegdsm = np.where(vegdsm > 0, self.dsm_arr + dsmraise + vegdsm, 0)
-            self.vegdsm = vegdsm
+            self.cdsm = cdsm
             logger.info("Vegetation DSM loaded from %s", model_configs.cdsm_path)
-
+            # Tree DSM
             if model_configs.tdsm_path:
-                vegdsm2, vegdsm2_trf, vegdsm2_crs, _ = common.load_raster(model_configs.tdsm_path, bbox=None)
-                if not vegdsm2.shape == self.dsm_arr.shape:
+                tdsm, vegdsm2_trf, vegdsm2_crs, _ = common.load_raster(model_configs.tdsm_path, bbox=None)
+                if not tdsm.shape == self.dsm.shape:
                     raise ValueError("Mismatching raster shapes for DSM and CDSM.")
-                if vegdsm2_crs is not None and vegdsm2_crs != self.dsm_crs_wkt:
+                if vegdsm2_crs is not None and vegdsm2_crs != self.crs_wkt:
                     raise ValueError("Mismatching CRS for DSM and CDSM.")
-                if not np.allclose(self.dsm_trf_arr, vegdsm2_trf):
+                if not np.allclose(self.trf_arr, vegdsm2_trf):
                     raise ValueError("Mismatching spatial transform for DSM and CDSM.")
-                # CDSM2 boosting
-                vegdsm2_zero_ratio = np.sum(vegdsm2 <= 0) / (self.rows * self.cols)
-                if vegdsm2_zero_ratio > 0.05:
-                    logger.warning("CDSM2 appears to have no DEM information: boosting CDSM2 to DSM heights.")
-                    # Set vegetated pixels to DSM + CDSM2 otherwise zero
-                    vegdsm2 = np.where(vegdsm2 > 0, self.dsm_arr + dsmraise + vegdsm2, 0)
-                self.vegdsm2 = vegdsm2
                 logger.info("Tree DSM loaded from %s", model_configs.tdsm_path)
             else:
-                self.vegdsm2 = self.vegdsm * model_params.Tree_settings.Value.Trunk_ratio
+                tdsm = self.cdsm * model_params.Tree_settings.Value.Trunk_ratio
                 logger.info("Tree DSM not provided; using trunk ratio for vegdsm2.")
-        else:
-            self.vegdsm = None
-            self.vegdsm2 = None
-            logger.info("Vegetation DEM not used; vegetation arrays set to None.")
-
-        self.amaxvalue = self.dsm_arr.max() - self.dsm_arr.min()
-        if model_configs.use_veg_dem:
-            vegmax = self.vegdsm.max()
+            self.tdsm = tdsm
+            # Compare veg heights against DSM and update amax if necessary
+            vegmax = self.cdsm.max() - self.cdsm.min()
             self.amaxvalue = np.maximum(self.amaxvalue, vegmax)
-            # % Bush separation
-            self.bush = np.logical_not(self.vegdsm2 * self.vegdsm) * self.vegdsm
+            # CDSM boosting
+            cdsm_zero_ratio = np.sum(cdsm <= 0) / (self.rows * self.cols)
+            if cdsm_zero_ratio > 0.05:
+                logger.warning("CDSM appears to have no DEM information: boosting CDSM / TDSM to DSM heights.")
+                # Set vegetated pixels to DSM + CDSM otherwise zero
+                self.cdsm = np.where(self.cdsm > 0, self.dsm + self.cdsm, 0)
+                self.tdsm = np.where(self.tdsm > 0, self.dsm + self.tdsm, 0)
+            self.bush = np.logical_not(self.tdsm * self.cdsm) * self.cdsm
             self.svfbuveg = svf_data.svf - (1.0 - svf_data.svf_veg) * (
                 1.0 - model_params.Tree_settings.Value.Transmissivity
             )
-            logger.info("Vegetation parameters calculated.")
         else:
-            self.svfbuveg = svf_data.svf
+            self.cdsm = None
+            self.tdsm = None
+            logger.info("Vegetation DEM not used; vegetation arrays set to None.")
             self.bush = np.zeros([self.rows, self.cols])
-            logger.info("Vegetation parameters set to defaults (no vegetation DSM).")
+            self.svfbuveg = svf_data.svf
+
+        common.save_raster(
+            model_configs.output_dir + "/input-dsm.tif",
+            self.dsm,
+            self.trf_arr,
+            self.crs_wkt,
+            self.nd_val,
+        )
+        common.save_raster(
+            model_configs.output_dir + "/input-cdsm.tif",
+            self.cdsm,
+            self.trf_arr,
+            self.crs_wkt,
+            self.nd_val,
+        )
+        common.save_raster(
+            model_configs.output_dir + "/input-tdsm.tif",
+            self.tdsm,
+            self.trf_arr,
+            self.crs_wkt,
+            self.nd_val,
+        )
+        common.save_raster(
+            model_configs.output_dir + "/input-svfbuveg.tif",
+            self.svfbuveg,
+            self.trf_arr,
+            self.crs_wkt,
+            self.nd_val,
+        )
+        common.save_raster(
+            model_configs.output_dir + "/input-bush.tif",
+            self.bush,
+            self.trf_arr,
+            self.crs_wkt,
+            self.nd_val,
+        )
 
         # Land cover
         if model_configs.use_landcover:
             lc_path_str = str(common.check_path(model_configs.lc_path))
             self.lcgrid, lc_trf, lc_crs, _ = common.load_raster(lc_path_str, bbox=None)
-            if not self.lcgrid.shape == self.dsm_arr.shape:
+            if not self.lcgrid.shape == self.dsm.shape:
                 raise ValueError("Mismatching raster shapes for land cover and DSM.")
-            if lc_crs is not None and lc_crs != self.dsm_crs_wkt:
+            if lc_crs is not None and lc_crs != self.crs_wkt:
                 raise ValueError("Mismatching CRS for land cover and DSM.")
-            if not np.allclose(self.dsm_trf_arr, lc_trf):
+            if not np.allclose(self.trf_arr, lc_trf):
                 raise ValueError("Mismatching spatial transform for land cover and DSM.")
             logger.info("Land cover loaded from %s", model_configs.lc_path)
         else:
@@ -586,7 +611,7 @@ class RasterData:
             self.buildings = buildings
             logger.info("Buildings raster created from land cover data.")
         elif model_configs.use_dem_for_buildings:
-            buildings = self.dsm_arr - self.dem
+            buildings = self.dsm - self.dem
             buildings[buildings < 2.0] = 1.0
             buildings[buildings >= 2.0] = 0.0
             self.buildings = buildings
@@ -788,10 +813,10 @@ class WallsData:
             # wall_type_standalone = {"Brick_wall": "100", "Concrete_wall": "101", "Wood_wall": "102"}
             wall_type = model_configs.wall_type
             # Get heights of walls including corners
-            self.walls_scheme = wa.findwalls_sp(raster_data.dsm_arr, 2, np.array([[1, 1, 1], [1, 0, 1], [1, 1, 1]]))
+            self.walls_scheme = wa.findwalls_sp(raster_data.dsm, 2, np.array([[1, 1, 1], [1, 0, 1], [1, 1, 1]]))
             # Get aspects of walls including corners
             self.dirwalls_scheme = wa.filter1Goodwin_as_aspect_v3(
-                self.walls_scheme.copy(), raster_data.scale, raster_data.dsm_arr, None, 100.0 / 180.0
+                self.walls_scheme.copy(), raster_data.scale, raster_data.dsm, None, 100.0 / 180.0
             )
             # Calculate timeStep
             first_timestep = (
@@ -818,7 +843,7 @@ class WallsData:
                 tg_maps.alb_grid,
                 model_configs.use_landcover,
                 raster_data.lcgrid,
-                raster_data.dsm_arr,
+                raster_data.dsm,
             )
             # Create pandas datetime object for NetCDF output
             self.met_for_xarray = (

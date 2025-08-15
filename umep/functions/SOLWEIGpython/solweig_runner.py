@@ -88,7 +88,7 @@ class SolweigRun:
         left_x = self.raster_data.trf_arr[0]
         top_y = self.raster_data.trf_arr[3]
         lng, lat = common.xy_to_lnglat(self.raster_data.crs_wkt, left_x, top_y)
-        alt = np.median(self.raster_data.dsm_arr)
+        alt = np.median(self.raster_data.dsm)
         if alt < 0:
             alt = 3
         self.location = {"longitude": lng, "latitude": lat, "altitude": alt}
@@ -246,7 +246,7 @@ class SolweigRun:
         """
         return so.Solweig_2025a_calc(
             iter,
-            self.raster_data.dsm_arr,
+            self.raster_data.dsm,
             self.raster_data.scale,
             self.raster_data.rows,
             self.raster_data.cols,
@@ -265,8 +265,8 @@ class SolweigRun:
             self.svf_data.svf_veg_blocks_bldg_sh_south,
             self.svf_data.svf_veg_blocks_bldg_sh_west,
             self.svf_data.svf_veg_blocks_bldg_sh_north,
-            self.raster_data.vegdsm,
-            self.raster_data.vegdsm2,
+            self.raster_data.cdsm,
+            self.raster_data.tdsm,
             self.params.Albedo.Effective.Value.Walls,
             self.params.Tmrt_params.Value.absK,
             self.params.Tmrt_params.Value.absL,
@@ -585,7 +585,7 @@ class SolweigRun:
                         self.raster_data.cols,
                         self.walls_data.met_for_xarray,
                         i,
-                        self.raster_data.dsm_arr,
+                        self.raster_data.dsm,
                         self.config.dsm_path,
                         netcdf_output,
                     )
