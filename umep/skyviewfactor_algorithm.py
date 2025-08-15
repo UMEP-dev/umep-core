@@ -84,6 +84,7 @@ def generate_svf(
     if cdsm_path is None:
         use_cdsm = False
         cdsm = np.zeros([rows, cols])
+        tdsm = np.zeros([rows, cols])
     else:
         use_cdsm = True
         cdsm, cdsm_transf, cdsm_crs, _cdsm_nd = common.load_raster(cdsm_path, bbox)
@@ -93,18 +94,18 @@ def generate_svf(
             raise ValueError("Mismatching CRS for DSM and CDSM.")
         if not np.allclose(dsm_transf, cdsm_transf):
             raise ValueError("Mismatching spatial transform for DSM and CDSM.")
+        # TDSM
+        if not (0 <= trunk_ratio_perc <= 100):
+            raise ValueError("Vegetation trunk ratio should be a number between 0 and 100")
+        trunk_ratio = trunk_ratio_perc / 100.0
+        tdsm = cdsm * trunk_ratio
         # Check if CDSM has DEM info
         cdsm_zero_ratio = np.sum(cdsm <= 0) / (rows * cols)
         if cdsm_zero_ratio > 0.05:
             logger.warning("CDSM appears to have no DEM information: boosting CDSM to DSM heights.")
             # Set vegetated pixels to DSM + CDSM otherwise zero
             cdsm = np.where(cdsm > 0, dsm + cdsm, 0)
-
-    # TDSM
-    if not (0 <= trunk_ratio_perc <= 100):
-        raise ValueError("Vegetation trunk ratio should be a number between 0 and 100")
-    trunk_ratio = trunk_ratio_perc / 100.0
-    tdsm = cdsm * trunk_ratio
+            tdsm = np.where(tdsm > 0, dsm + tdsm, 0)
 
     # compute
     ret = svf.svfForProcessing153(dsm, cdsm, tdsm, dsm_scale, use_cdsm)
