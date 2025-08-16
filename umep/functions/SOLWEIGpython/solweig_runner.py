@@ -683,11 +683,11 @@ class SolweigRun:
 
         # Save POI results
         if self.poi_results:
-            self.save_poi_results(self.raster_data.trf_arr, self.raster_data.crs_wkt)
+            self.save_poi_results()
 
         # Save WOI results
         if self.woi_results:
-            self.save_woi_results(self.raster_data.trf_arr, self.raster_data.crs_wkt)
+            self.save_woi_results()
 
         # Save Tree Planter results
         if self.config.output_tree_planter:
