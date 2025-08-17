@@ -65,6 +65,7 @@ class SolweigRun:
         self.progress = None
         self.iters_total = None
         self.iters_count = 0
+        self.proceed = True
         # Initialize POI data
         self.poi_names = []
         self.poi_pixel_xys = None
@@ -370,7 +371,7 @@ class SolweigRun:
             first_unique_day = self.environ_data.DOY.copy()
             I0_array = np.zeros_like(self.environ_data.DOY)
         # For Tmrt plot
-        tmrtplot = np.zeros((self.raster_data.rows, self.raster_data.cols))
+        tmrt_agg = np.zeros((self.raster_data.rows, self.raster_data.cols))
         # Number of iterations
         num = len(self.environ_data.Ta)
         # Prepare progress tracking
@@ -379,9 +380,10 @@ class SolweigRun:
         elvis = 0.0
         #
         for i in range(num):
-            proceed = self.iter_progress()
-            if not proceed:
+            self.proceed = self.iter_progress()
+            if not self.proceed:
                 break
+            self.iters_count += 1
             # Run the SOLWEIG calculations
             (
                 Tmrt,
@@ -435,6 +437,18 @@ class SolweigRun:
                 timestepdec,
                 posture,
             )
+
+            # Aggregate Tmrt
+            # Guard against NaN and Inf - replace non-finite with avg if available
+            if (~np.isfinite(Tmrt)).any() and self.iters_count > 1:
+                logger.warning("Tmrt contains non-finite values, replacing with preceding average.")
+                tmrt_avg = tmrt_agg / self.iters_count
+                tmrt_agg = np.where(np.isfinite(Tmrt), tmrt_agg + Tmrt, tmrt_avg)
+            elif (~np.isfinite(tmrt_agg)).any():
+                raise ValueError("Tmrt aggregation contains non-finite values.")
+            else:
+                tmrt_agg = tmrt_agg + Tmrt
+
             # Save I0 for I0 vs. Kdown output plot to check if UTC is off
             if i < first_unique_day.shape[0]:
                 I0_array[i] = I0
@@ -450,8 +464,6 @@ class SolweigRun:
                 ax.set_title("UTC" + str(self.config.utc))
                 ax.legend()
                 fig.savefig(self.config.output_dir + "/metCheck.png", dpi=150)
-
-            tmrtplot = tmrtplot + Tmrt
 
             if self.environ_data.altitude[i] > 0:
                 w = "D"
@@ -681,6 +693,10 @@ class SolweigRun:
                         0,
                     )
 
+        # Abort if loop was broken
+        if not self.proceed:
+            return
+
         # Save POI results
         if self.poi_results:
             self.save_poi_results()
@@ -754,11 +770,12 @@ class SolweigRun:
             )
 
         # Save average Tmrt raster
-        tmrtplot = tmrtplot / self.iters_total
-        common.save_raster(
-            self.config.output_dir + "/Tmrt_average.tif",
-            tmrtplot,
-            self.raster_data.trf_arr,
-            self.raster_data.crs_wkt,
-            self.raster_data.nd_val,
-        )
+        if self.iters_count > 0:
+            tmrt_avg = tmrt_agg / self.iters_count
+            common.save_raster(
+                self.config.output_dir + "/Tmrt_average.tif",
+                tmrt_avg,
+                self.raster_data.trf_arr,
+                self.raster_data.crs_wkt,
+                self.raster_data.nd_val,
+            )

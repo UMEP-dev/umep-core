@@ -28,7 +28,6 @@ class SolweigRunCore(SolweigRun):
 
     def iter_progress(self) -> bool:
         """Iterate progress."""
-        self.iters_count += 1
         self.progress.update(1)
         return True
 

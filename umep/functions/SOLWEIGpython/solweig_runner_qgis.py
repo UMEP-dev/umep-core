@@ -22,7 +22,6 @@ class SolweigRunQgis(SolweigRun):
 
     def iter_progress(self) -> bool:
         """Iterate progress."""
-        self.iters_count += 1
         self.progress.setProgress(int(self.iters_count * (100.0 / self.iters_total)))  # move progressbar forward
         if self.progress.isCanceled():
             self.progress.setProgressText("Calculation cancelled")
