@@ -47,5 +47,3 @@ SRC = solweig_runner_core.SolweigRunCore(
     "tests/data/athens/parametersforsolweig.json",
 )
 SRC.run()
-"""
-"""
