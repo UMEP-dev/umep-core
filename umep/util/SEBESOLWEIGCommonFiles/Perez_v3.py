@@ -115,7 +115,7 @@ def Perez_v3(zen, azimuth, radD, radI, jday, patchchoice, patch_option):
     Ibn = radI
 
     # Skyclearness
-    PerezClearness = ((Idh+Ibn)/(Idh+1.041*np.power(zen, 3)))/(1+1.041*np.power(zen, 3))
+    PerezClearness = ((Idh + Ibn) / Idh + 1.041 * np.power(zen, 3)) / (1 + 1.041 * np.power(zen, 3))
     # Extra terrestrial radiation
     day_angle = jday*2*np.pi/365
     #I0=1367*(1+0.033*np.cos((2*np.pi*jday)/365))
@@ -144,17 +144,17 @@ def Perez_v3(zen, azimuth, radD, radI, jday, patchchoice, patch_option):
     # sky clearness bins
     if PerezClearness < 1.065:
         intClearness = 0
-    if PerezClearness > 1.065 and PerezClearness < 1.230:
+    elif PerezClearness < 1.230:
         intClearness = 1
-    if PerezClearness > 1.230 and PerezClearness < 1.500:
+    elif PerezClearness < 1.500:
         intClearness = 2
-    if PerezClearness > 1.500 and PerezClearness < 1.950:
+    elif PerezClearness < 1.950:
         intClearness = 3
-    if PerezClearness > 1.950 and PerezClearness < 2.800:
+    elif PerezClearness < 2.800:
         intClearness = 4
-    if PerezClearness > 2.800 and PerezClearness < 4.500:
+    elif PerezClearness < 4.500:
         intClearness = 5
-    if PerezClearness > 4.500 and PerezClearness < 6.200:
+    elif PerezClearness < 6.200:
         intClearness = 6
     if PerezClearness > 6.200:
         intClearness = 7
