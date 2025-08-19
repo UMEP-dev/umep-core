@@ -1,6 +1,6 @@
 [project]
 name = "umep"
-version = "0.0.1b29"
+version = "0.0.1b30"
 description = "urban multi-scale environmental predictor"
 readme = "README.md"
 requires-python = ">=3.9, <3.14"
@@ -54,7 +54,12 @@ requires = ["setuptools>=61.0", "wheel", "setuptools_scm[toml]>=6.2"]
 build-backend = "setuptools.build_meta"
 
 [dependency-groups]
-dev = ["ipykernel>=6.29.5", "pip>=25.0.1", "poethepoet>=0.33.1"]
+dev = [
+    "ipykernel>=6.29.5",
+ "pip>=25.0.1",
+ "poethepoet>=0.33.1",
+ "pytest>=8.4.1",
+]
 
 [project.urls]
 homepage = "https://github.com/UMEP-dev/umep-core"

@@ -13,7 +13,7 @@ from umep import (
 from umep.functions.SOLWEIGpython import solweig_runner_core
 
 # working folder
-input_folder = "tests/data/athens"
+input_folder = "demos/data/athens"
 input_path = Path(input_folder).absolute()
 input_path.mkdir(parents=True, exist_ok=True)
 input_path_str = str(input_path)
@@ -65,7 +65,7 @@ skyviewfactor_algorithm.generate_svf(
 # %%
 
 SRC = solweig_runner_core.SolweigRunCore(
-    "tests/data/athens/configsolweig.ini",
-    "tests/data/athens/parametersforsolweig.json",
+    "demos/data/athens/configsolweig.ini",
+    "demos/data/athens/parametersforsolweig.json",
 )
 SRC.run()

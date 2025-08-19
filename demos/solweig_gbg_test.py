@@ -18,10 +18,10 @@ working_path.mkdir(parents=True, exist_ok=True)
 working_path_str = str(working_path)
 
 # input files for computing
-dsm_path = "tests/data/Goteborg_SWEREF99_1200/DSM_KRbig.tif"
-cdsm_path = "tests/data/Goteborg_SWEREF99_1200/CDSM_KRbig.tif"
-config_path = "tests/data/Goteborg_SWEREF99_1200/configsolweig_alt.ini"
-params_path = "tests/data/Goteborg_SWEREF99_1200/parametersforsolweig.json"
+dsm_path = "demos/data/Goteborg_SWEREF99_1200/DSM_KRbig.tif"
+cdsm_path = "demos/data/Goteborg_SWEREF99_1200/CDSM_KRbig.tif"
+config_path = "demos/data/Goteborg_SWEREF99_1200/configsolweig_alt.ini"
+params_path = "demos/data/Goteborg_SWEREF99_1200/parametersforsolweig.json"
 
 # %%
 # wall info for SOLWEIG (height and aspect)
@@ -51,6 +51,6 @@ SWC.run()
 
 # %%
 # For comparison
-Solweig_run.solweig_run("tests/data/Goteborg_SWEREF99_1200/config_solweig_old_fmt.ini", None)
+Solweig_run.solweig_run("demos/data/Goteborg_SWEREF99_1200/config_solweig_old_fmt.ini", None)
 
 # %%
