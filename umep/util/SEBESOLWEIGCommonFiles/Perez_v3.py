@@ -7,6 +7,15 @@ def Perez_v3(zen, azimuth, radD, radI, jday, patchchoice, patch_option):
     This function calculates distribution of luminance on the skyvault based on
     Perez luminince distribution model.
     
+    ALL-WEATHER MODEL FOR SKY LUMINANCE DISTRIBUTION
+    PRELIMINARY CONFIGURATION AND VALIDATION
+    R. PEREZ, R. SEALS, and J. MICHALSKY
+    Solar Energy Vol. 50, No, 3, pp. 235-245, 1993 
+    
+    Abstract--This article reports the development and evaluation of a new model for describing, from routine
+    irradiance measurements, the mean instantaneous sky luminance angular distribution patterns for all sky
+    conditions from overcast to clear, through partly cloudy, skies.
+
     Created by:
     Fredrik Lindberg 20120527, fredrikl@gvc.gu.se
     Gothenburg University, Sweden
@@ -171,7 +180,7 @@ def Perez_v3(zen, azimuth, radD, radI, jday, patchchoice, patch_option):
         # different equations for c & d in clearness bin no. 1,  from Robinsson
         m_c = np.exp(np.power(PerezBrightness * (ccoeff[intClearness, 0] + ccoeff[intClearness, 1] * zen), ccoeff[intClearness, 2]))-1
         m_d = -np.exp(PerezBrightness * (dcoeff[intClearness, 0] + dcoeff[intClearness, 1] * zen)) + dcoeff[intClearness, 2] + \
-            PerezBrightness * dcoeff[intClearness, 3] * PerezBrightness
+            PerezBrightness * dcoeff[intClearness, 3]
 
     # print 'a = ', m_a
     # print 'b = ', m_b
