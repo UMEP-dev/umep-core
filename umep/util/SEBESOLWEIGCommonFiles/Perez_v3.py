@@ -129,7 +129,8 @@ def Perez_v3(zen, azimuth, radD, radI, jday, patchchoice, patch_option):
     elif altitude < 0:   # below equation becomes complex
         AirMass = 1/np.sin(altitude)+0.50572*np.power(180*complex(altitude)/np.pi+6.07995, -1.6364)
     else:
-        AirMass = 1/np.sin(altitude)+0.50572*np.power(180*altitude/np.pi+6.07995, -1.6364)
+        # Added brackets to denominator: np.sin(0) was giving zero hence division by zero = infinity
+        AirMass = 1 / (np.sin(altitude) + 0.50572 * np.power(180 * altitude / np.pi + 6.07995, -1.6364))
 
     # Skybrightness
     # if altitude*rad2deg+6.07995>=0
@@ -200,40 +201,11 @@ def Perez_v3(zen, azimuth, radD, radI, jday, patchchoice, patch_option):
     cosSkySunAngle = np.sin(skyvaultalt) * np.sin(altitude) + \
                      np.cos(altitude) * np.cos(skyvaultalt) * np.cos(np.abs(skyvaultazi-azimuth))
 
-    # Minimal clipping for stability
-    if np.any(cosSkySunAngle < -1):
-        print(f"Warning: clipping cosSkySunAngle min of {np.min(cosSkySunAngle)} to -1")
-        cosSkySunAngle = np.clip(cosSkySunAngle, -1.0, None)  # Prevent arccos(1) and circumsolar spike
-    if np.any(cosSkySunAngle > 0.9996):
-        print(f"Warning: clipping cosSkySunAngle max of {np.max(cosSkySunAngle)} to 0.9996")
-        cosSkySunAngle = np.clip(cosSkySunAngle, None, 0.9996)
-
     cos_zen = np.cos(skyvaultzen)
-    if np.any(cos_zen < 0.1):
-        print(f"Warning: clipping cos_zen min of {np.min(cos_zen)} to 0.1")
-        cos_zen = np.clip(cos_zen, 0.1, None)
-
     exp_arg_h = m_b / cos_zen
-    if np.any(exp_arg_h < -25):
-        print(f"Warning: clipping exp_arg_h min of {np.min(exp_arg_h)} to -25")
-        exp_arg_h = np.clip(exp_arg_h, -25, None)
-    if np.any(exp_arg_h > 25):
-        print(f"Warning: clipping exp_arg_h max of {np.max(exp_arg_h)} to 25")
-        exp_arg_h = np.clip(exp_arg_h, None, 25)
-
     ang = np.arccos(cosSkySunAngle)
     exp_arg_c = m_d * ang
-    if np.any(exp_arg_c < -25):
-        print(f"Warning: clipping exp_arg_c min of {np.min(exp_arg_c)} to -25")
-        exp_arg_c = np.clip(exp_arg_c, -25, None)
-    if np.any(exp_arg_c > 25):
-        print(f"Warning: clipping exp_arg_c max of {np.max(exp_arg_c)} to 25")
-        exp_arg_c = np.clip(exp_arg_c, None, 25)
-
     circumsolar = 1 + m_c * np.exp(exp_arg_c) + m_e * cosSkySunAngle * cosSkySunAngle
-    if np.any(circumsolar < 0):
-        print(f"Warning: clipping circumsolar min of {np.min(circumsolar)} to 0")
-        circumsolar = np.maximum(circumsolar, 0.0)
 
     lv = (1 + m_a * np.exp(exp_arg_h)) * circumsolar
 
