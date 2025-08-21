@@ -1,9 +1,8 @@
-# -*- coding: utf-8 -*-
 # Ready for python action!
 import numpy as np
 
 # import matplotlib.pylab as plt
-from numba import njit, types
+# from numba import njit, types
 
 
 def shadowingfunctionglobalradiation(a, azimuth, altitude, scale, forsvf):
@@ -38,8 +37,8 @@ def shadowingfunctionglobalradiation(a, azimuth, altitude, scale, forsvf):
     tanazimuth = np.tan(azimuth)
     signsinazimuth = np.sign(sinazimuth)
     signcosazimuth = np.sign(cosazimuth)
-    dssin = np.abs((1.0 / sinazimuth))
-    dscos = np.abs((1.0 / cosazimuth))
+    dssin = np.abs(1.0 / sinazimuth)
+    dscos = np.abs(1.0 / cosazimuth)
     tanaltitudebyscale = np.tan(altitude) / scale
     # % main loop
     while amaxvalue >= dz and np.abs(dx) < sizex and np.abs(dy) < sizey:
@@ -87,9 +86,7 @@ def shadowingfunctionglobalradiation(a, azimuth, altitude, scale, forsvf):
 
 
 # @jit(nopython=True)
-def shadowingfunction_20(
-    a, vegdem, vegdem2, azimuth, altitude, scale, amaxvalue, bush, forsvf
-):
+def shadowingfunction_20(a, vegdem, vegdem2, azimuth, altitude, scale, amaxvalue, bush, forsvf):
     # plt.ion()
     # fig = plt.figure(figsize=(24, 7))
     # plt.axis('image')
@@ -136,12 +133,8 @@ def shadowingfunction_20(
     templastgabovea = np.zeros((sizex, sizey), dtype=np.float32)
     bushplant = bush > 1.0
     sh = np.zeros((sizex, sizey), dtype=np.float32)  # shadows from buildings
-    vbshvegsh = np.zeros(
-        (sizex, sizey), dtype=np.float32
-    )  # vegetation blocking buildings
-    vegsh = np.add(
-        np.zeros((sizex, sizey), dtype=np.float32), bushplant, dtype=float
-    )  # vegetation shadow
+    vbshvegsh = np.zeros((sizex, sizey), dtype=np.float32)  # vegetation blocking buildings
+    vegsh = np.add(np.zeros((sizex, sizey), dtype=np.float32), bushplant, dtype=float)  # vegetation shadow
     f = a
 
     pibyfour = np.pi / 4.0
@@ -153,8 +146,8 @@ def shadowingfunction_20(
     tanazimuth = np.tan(azimuth)
     signsinazimuth = np.sign(sinazimuth)
     signcosazimuth = np.sign(cosazimuth)
-    dssin = np.abs((1.0 / sinazimuth))
-    dscos = np.abs((1.0 / cosazimuth))
+    dssin = np.abs(1.0 / sinazimuth)
+    dscos = np.abs(1.0 / cosazimuth)
     tanaltitudebyscale = np.tan(altitude) / scale
     # index = 1
     index = 0
@@ -274,7 +267,7 @@ def shadowingfunction_20(
 
 
 # NOTE: Numba offers limited gains in this case
-@njit
+# @njit
 def shadowingfunction_20_numba(
     a: np.ndarray,
     vegdem: np.ndarray,
@@ -285,7 +278,7 @@ def shadowingfunction_20_numba(
     amaxvalue: float,
     bush: np.ndarray,
     forsvf: int,
-) -> types.Tuple((types.float64[:, :], types.float64[:, :], types.float64[:, :])):
+):  #  -> types.Tuple((types.float64[:, :], types.float64[:, :], types.float64[:, :])):
     # This function casts shadows on buildings and vegetation units.
     # New capability to deal with pergolas 20210827
 
@@ -310,9 +303,7 @@ def shadowingfunction_20_numba(
     bushplant = bush > 1.0
     sh = np.zeros((sizex, sizey))  # shadows from buildings
     vbshvegsh = np.zeros((sizex, sizey))  # vegetation blocking buildings
-    vegsh = np.zeros(
-        (sizex, sizey), dtype=np.float64
-    )  # Initialize the array with zeros
+    vegsh = np.zeros((sizex, sizey), dtype=np.float64)  # Initialize the array with zeros
     # Add bushplant values to the vegsh array
     for i in range(sizex):
         for j in range(sizey):
@@ -328,12 +319,8 @@ def shadowingfunction_20_numba(
     tanazimuth = np.tan(azimuth)
     signsinazimuth = np.sign(sinazimuth)
     signcosazimuth = np.sign(cosazimuth)
-    dssin = (
-        np.abs(1.0 / sinazimuth) if sinazimuth != 0 else np.inf
-    )  # Avoid division by zero
-    dscos = (
-        np.abs(1.0 / cosazimuth) if cosazimuth != 0 else np.inf
-    )  # Avoid division by zero
+    dssin = np.abs(1.0 / sinazimuth) if sinazimuth != 0 else np.inf  # Avoid division by zero
+    dscos = np.abs(1.0 / cosazimuth) if cosazimuth != 0 else np.inf  # Avoid division by zero
     tanaltitudebyscale = np.tan(altitude) / scale
     # index = 1
     index = 0
