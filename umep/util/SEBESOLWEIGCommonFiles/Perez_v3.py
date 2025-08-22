@@ -219,12 +219,11 @@ def Perez_v3(zen, azimuth, radD, radI, jday, patchchoice, patch_option):
     lv = (1 + m_a * np.exp(exp_arg_h)) * circumsolar
 
     # Normalisation (with safeguard)
-    lv_sum = np.sum(lv)
-    if lv_sum > 1e-9: # Use a small threshold to avoid division by zero
-        lv = lv / lv_sum
+    if np.any(lv < 0):
+        print("Warning: found negative Perez luminances, using uniform distribution as fallback.")
+        lv.fill(1.0 / lv.size)  # uniform fallback
     else:
-        print("Warning: luminance sum is zero, using fallback normalization.")
-        lv.fill(1.0 / lv.size) # Fallback for zero-luminance sky
+        lv = lv / np.sum(lv)
 
     # plotting
     # axesm('stereo','Origin',[90 180],'MapLatLimit',[0 90],'Aspect','transverse')
