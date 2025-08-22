@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Optional, Tuple, Union
 
 import numpy as np
+import scipy.ndimage as ndi
 
 from .util.SEBESOLWEIGCommonFiles.clearnessindex_2013b import clearnessindex_2013b
 
@@ -459,7 +460,20 @@ class RasterData:
             self.dsm = self.dsm + dsmraise
         else:
             dsmraise = 0
-        self.amaxvalue = self.dsm.max() - self.dsm.min()
+        # Calculate local 100 m maxima/minima ranges and use the 99.9th percentile
+        pix_size = abs(self.trf_arr[1])
+        # Number of pixels to cover ~100 m radius (use a square window)
+        radius_pix = max(1, int(np.ceil(100.0 / pix_size)))
+        window = 2 * radius_pix + 1
+        try:
+            local_max = ndi.maximum_filter(self.dsm, size=window, mode="nearest")
+            local_min = ndi.minimum_filter(self.dsm, size=window, mode="nearest")
+            local_range = local_max - local_min
+            self.amaxvalue = float(np.nanpercentile(local_range, 99.9))
+        except Exception:
+            # Fallback to global range if filtering fails for any reason
+            self.amaxvalue = float(self.dsm.max() - self.dsm.min())
+        logger.info("Calculated amaxvalue: %.2f m", self.amaxvalue)
         # WALLS
         # heights
         self.wallheight, wh_trf, wh_crs, _ = common.load_raster(model_configs.wh_path, bbox=None)
