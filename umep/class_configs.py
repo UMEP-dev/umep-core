@@ -480,6 +480,7 @@ def raster_preprocessing(
         # Compare veg heights against DSM and update amax if necessary
         # Do before boosting to DEM / CDSM
         vegmax = np.nanmax(cdsm) - np.nanmin(cdsm)
+        vegmax = min(vegmax, 50)
         if vegmax > amaxvalue:
             logger.warning(f"Overriding amax {amaxvalue}m with veg max height of {vegmax}m.")
             amaxvalue = vegmax
