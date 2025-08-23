@@ -433,15 +433,16 @@ def raster_preprocessing(
     tdsm: np.ndarray | None,
     trunk_ratio: float,
     pix_size: float,
+    local_window_m: int = 100,
     amax_perc: float = 99.0,
 ):
     # amax
     if dem is None:
         amaxvalue = float(np.nanmax(dsm) - np.nanmin(dsm))
     else:
-        # Calculate local 100 m maxima/minima ranges and use the 99th percentile
-        # Number of pixels to cover ~100 m radius (use a square window)
-        radius_pix = max(1, int(np.ceil(100.0 / pix_size)))
+        # Calculate local maxima/minima ranges
+        # Number of pixels to cover ~local_window_m radius (use a square window)
+        radius_pix = max(1, int(np.ceil(local_window_m / pix_size)))
         window = 2 * radius_pix + 1
         try:
             local_min = ndi.minimum_filter(dsm, size=window, mode="nearest")
@@ -476,8 +477,10 @@ def raster_preprocessing(
         # Do before boosting to DEM / CDSM
         vegmax = np.nanmax(cdsm) - np.nanmin(cdsm)
         if vegmax > amaxvalue:
-            logger.warning(f"Overriding DSM max {amaxvalue}m with veg max height of {vegmax}m.")
+            logger.warning(f"Overriding amax {amaxvalue}m with veg max height of {vegmax}m.")
             amaxvalue = vegmax
+        else:
+            logger.info(f"Using amax {amaxvalue}m derived from {local_window_m}m window and {amax_perc}th percentile.")
 
         # Set vegetated pixels to DEM + CDSM otherwise DSM + CDSM
         if dem is not None:
