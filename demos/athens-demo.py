@@ -57,12 +57,12 @@ skyviewfactor_algorithm.generate_svf(
     dsm_path=input_path_str + "/DSM.tif",
     bbox=total_extents,
     out_dir=output_folder_path_str + "/svf",
+    dem_path=input_path_str + "/DEM.tif",
     cdsm_path=output_folder_path_str + "/CDSM.tif",
     trans_veg_perc=3,
 )
 
 # %%
-
 SRC = solweig_runner_core.SolweigRunCore(
     "demos/data/athens/configsolweig.ini",
     "demos/data/athens/parametersforsolweig.json",

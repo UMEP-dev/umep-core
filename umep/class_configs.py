@@ -426,6 +426,78 @@ class SvfData:
         logger.info("SVF data loaded and processed.")
 
 
+def raster_preprocessing(
+    dsm: np.ndarray,
+    dem: np.ndarray | None,
+    cdsm: np.ndarray | None,
+    tdsm: np.ndarray | None,
+    trunk_ratio: float,
+    pix_size: float,
+    amax_perc: float = 99.0,
+):
+    # amax
+    if dem is None:
+        amaxvalue = float(np.nanmax(dsm) - np.nanmin(dsm))
+    else:
+        # Calculate local 100 m maxima/minima ranges and use the 99th percentile
+        # Number of pixels to cover ~100 m radius (use a square window)
+        radius_pix = max(1, int(np.ceil(100.0 / pix_size)))
+        window = 2 * radius_pix + 1
+        try:
+            local_min = ndi.minimum_filter(dsm, size=window, mode="nearest")
+            local_range = dsm - local_min
+            amaxvalue = float(np.nanpercentile(local_range, amax_perc))
+        except Exception:
+            # Fallback to global range if filtering fails for any reason
+            amaxvalue = float(np.nanmax(dsm) - np.nanmin(dsm))
+
+    # CDSM is relative to flat surface without DEM
+    if cdsm is None:
+        cdsm = np.zeros_like(dsm)
+    else:
+        if np.nanmax(cdsm) > 50:
+            logger.warning(
+                f"CDSM max {np.nanmax(cdsm)} exceeds 50 m, vegetation heights to be relative to ground (no DEM)."
+            )
+        cdsm[np.isnan(cdsm)] = 0.0
+        # TDSM is relative to flat surface without DEM
+        if tdsm is None:
+            logger.info("Tree trunk TDSM not provided; using trunk ratio for TDSM.")
+            tdsm = cdsm * trunk_ratio
+        if np.nanmax(tdsm) > 50:
+            logger.warning(
+                f"TDSM max {np.nanmax(tdsm)} exceeds 50m, vegetation heights to be relative to ground (no DEM)."
+            )
+        if np.nanmax(tdsm) > np.nanmax(cdsm):
+            logger.warning("Found TDSM heights exceeding CDSM heights, check input rasters.")
+        tdsm[np.isnan(tdsm)] = 0.0
+
+        # Compare veg heights against DSM and update amax if necessary
+        # Do before boosting to DEM / CDSM
+        vegmax = np.nanmax(cdsm) - np.nanmin(cdsm)
+        if vegmax > amaxvalue:
+            logger.warning(f"Overriding DSM max {amaxvalue}m with veg max height of {vegmax}m.")
+            amaxvalue = vegmax
+
+        # Set vegetated pixels to DEM + CDSM otherwise DSM + CDSM
+        if dem is not None:
+            cdsm = np.where(~np.isnan(dem), dem + cdsm, np.nan)
+            cdsm = np.where(cdsm - dem < 0.1, 0, cdsm)
+            tdsm = np.where(~np.isnan(dem), dem + tdsm, np.nan)
+            tdsm = np.where(tdsm - dem < 0.1, 0, tdsm)
+        else:
+            cdsm = np.where(~np.isnan(dsm), dsm + cdsm, np.nan)
+            cdsm = np.where(cdsm - dsm < 0.1, 0, cdsm)
+            tdsm = np.where(~np.isnan(dsm), dsm + tdsm, np.nan)
+            tdsm = np.where(tdsm - dsm < 0.1, 0, tdsm)
+
+    logger.info("Calculated max height for shadows: %.2fm", amaxvalue)
+    if amaxvalue > 100:
+        logger.warning("Max shadow height exceeds 100m, double-check the input rasters for anomalies.")
+
+    return dsm, dem, cdsm, tdsm, amaxvalue
+
+
 class RasterData:
     """Class to represent vegetation parameters."""
 
@@ -454,26 +526,13 @@ class RasterData:
         self.scale = 1 / self.trf_arr[1]
         self.rows = self.dsm.shape[0]
         self.cols = self.dsm.shape[1]
-        self.dsm[self.dsm == self.nd_val] = 0.0
-        if self.dsm.min() < 0:
-            dsmraise = np.abs(self.dsm.min())
-            self.dsm = self.dsm + dsmraise
-        else:
-            dsmraise = 0
-        # Calculate local 100 m maxima/minima ranges and use the 99.9th percentile
-        pix_size = abs(self.trf_arr[1])
-        # Number of pixels to cover ~100 m radius (use a square window)
-        radius_pix = max(1, int(np.ceil(100.0 / pix_size)))
-        window = 2 * radius_pix + 1
-        try:
-            local_max = ndi.maximum_filter(self.dsm, size=window, mode="nearest")
-            local_min = ndi.minimum_filter(self.dsm, size=window, mode="nearest")
-            local_range = local_max - local_min
-            self.amaxvalue = float(np.nanpercentile(local_range, 99))
-        except Exception:
-            # Fallback to global range if filtering fails for any reason
-            self.amaxvalue = float(self.dsm.max() - self.dsm.min())
-        logger.info("Calculated amaxvalue: %.2f m", self.amaxvalue)
+        # TODO: is this needed?
+        # if self.dsm.min() < 0:
+        #     dsmraise = np.abs(self.dsm.min())
+        #     self.dsm = self.dsm + dsmraise
+        # else:
+        #     dsmraise = 0
+
         # WALLS
         # heights
         self.wallheight, wh_trf, wh_crs, _ = common.load_raster(model_configs.wh_path, bbox=None)
@@ -498,37 +557,36 @@ class RasterData:
         # TODO: Is DEM always provided?
         if model_configs.dem_path:
             dem_path_str = str(common.check_path(model_configs.dem_path))
-            dem, dem_trf, dem_crs, dem_nd_val = common.load_raster(dem_path_str, bbox=None)
-            if not dem.shape == self.dsm.shape:
+            self.dem, dem_trf, dem_crs, dem_nd_val = common.load_raster(dem_path_str, bbox=None)
+            if not self.dem.shape == self.dsm.shape:
                 raise ValueError("Mismatching raster shapes for DEM and CDSM.")
             if dem_crs is not None and dem_crs != self.crs_wkt:
                 raise ValueError("Mismatching CRS for DEM and CDSM.")
             if not np.allclose(self.trf_arr, dem_trf):
                 raise ValueError("Mismatching spatial transform for DEM and CDSM.")
             logger.info("DEM loaded from %s", model_configs.dem_path)
-            dem[dem == dem_nd_val] = 0.0
+            # dem[dem == dem_nd_val] = 0.0
             # TODO: Check if this is needed re DSM ramifications
-            if dem.min() < 0:
-                demraise = np.abs(dem.min())
-                dem = dem + demraise
-            self.dem = dem
+            # if dem.min() < 0:
+            #     demraise = np.abs(dem.min())
+            #     dem = dem + demraise
         else:
             self.dem = None
+
         # Vegetation
         if model_configs.use_veg_dem:
-            cdsm, vegdsm_trf, vegdsm_crs, _ = common.load_raster(model_configs.cdsm_path, bbox=None)
-            if not cdsm.shape == self.dsm.shape:
+            self.cdsm, vegdsm_trf, vegdsm_crs, _ = common.load_raster(model_configs.cdsm_path, bbox=None)
+            if not self.cdsm.shape == self.dsm.shape:
                 raise ValueError("Mismatching raster shapes for DSM and CDSM.")
             if vegdsm_crs is not None and vegdsm_crs != self.crs_wkt:
                 raise ValueError("Mismatching CRS for DSM and CDSM.")
             if not np.allclose(self.trf_arr, vegdsm_trf):
                 raise ValueError("Mismatching spatial transform for DSM and CDSM.")
-            self.cdsm = cdsm
             logger.info("Vegetation DSM loaded from %s", model_configs.cdsm_path)
             # Tree DSM
             if model_configs.tdsm_path:
-                tdsm, vegdsm2_trf, vegdsm2_crs, _ = common.load_raster(model_configs.tdsm_path, bbox=None)
-                if not tdsm.shape == self.dsm.shape:
+                self.tdsm, vegdsm2_trf, vegdsm2_crs, _ = common.load_raster(model_configs.tdsm_path, bbox=None)
+                if not self.tdsm.shape == self.dsm.shape:
                     raise ValueError("Mismatching raster shapes for DSM and CDSM.")
                 if vegdsm2_crs is not None and vegdsm2_crs != self.crs_wkt:
                     raise ValueError("Mismatching CRS for DSM and CDSM.")
@@ -536,26 +594,27 @@ class RasterData:
                     raise ValueError("Mismatching spatial transform for DSM and CDSM.")
                 logger.info("Tree DSM loaded from %s", model_configs.tdsm_path)
             else:
-                tdsm = self.cdsm * model_params.Tree_settings.Value.Trunk_ratio
-                logger.info("Tree DSM not provided; using trunk ratio for vegdsm2.")
-            self.tdsm = tdsm
-            # Compare veg heights against DSM and update amax if necessary
-            vegmax = self.cdsm.max() - self.cdsm.min()
-            self.amaxvalue = np.maximum(self.amaxvalue, vegmax)
-            # CDSM boosting
-            cdsm_zero_ratio = np.sum(cdsm <= 0) / (self.rows * self.cols)
-            if cdsm_zero_ratio > 0.05:
-                logger.warning("CDSM appears to have no DEM information: boosting CDSM / TDSM to DSM heights.")
-                # Set vegetated pixels to DSM + CDSM otherwise zero
-                self.cdsm = np.where(self.cdsm > 0, self.dsm + self.cdsm, 0)
-                self.tdsm = np.where(self.tdsm > 0, self.dsm + self.tdsm, 0)
+                self.tdsm = None
+        else:
+            self.cdsm = None
+            self.tdsm = None
+
+        self.dsm, self.dem, self.cdsm, self.tdsm, self.amaxvalue = raster_preprocessing(  # type: ignore
+            self.dsm,
+            self.dem,
+            self.cdsm,
+            self.tdsm,
+            model_params.Tree_settings.Value.Trunk_ratio,
+            self.trf_arr[1],
+        )
+
+        # bushes etc
+        if model_configs.use_veg_dem:
             self.bush = np.logical_not(self.tdsm * self.cdsm) * self.cdsm
             self.svfbuveg = svf_data.svf - (1.0 - svf_data.svf_veg) * (
                 1.0 - model_params.Tree_settings.Value.Transmissivity
             )
         else:
-            self.cdsm = None
-            self.tdsm = None
             logger.info("Vegetation DEM not used; vegetation arrays set to None.")
             self.bush = np.zeros([self.rows, self.cols])
             self.svfbuveg = svf_data.svf
@@ -625,7 +684,8 @@ class RasterData:
             self.buildings = buildings
             logger.info("Buildings raster created from land cover data.")
         elif model_configs.use_dem_for_buildings:
-            buildings = self.dsm - self.dem
+            buildings = np.where(~np.isnan(self.dem) & ~np.isnan(self.dsm), self.dsm - self.dem, 0.0)
+            # TODO: Check intended logic here - 1 vs 0
             buildings[buildings < 2.0] = 1.0
             buildings[buildings >= 2.0] = 0.0
             self.buildings = buildings

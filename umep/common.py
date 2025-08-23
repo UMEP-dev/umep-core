@@ -182,13 +182,9 @@ def load_raster(
             trf_arr = [trf[0], trf[1], 0, trf[3], 0, trf[5]]
         dataset = None  # ensure dataset closed
     # Handle no-data (support NaN)
-    if no_data_val is not None:
-        if np.isnan(no_data_val):
-            logger.info("No-data value is NaN, replacing NaNs in raster array with 0.0")
-            rast_arr[np.isnan(rast_arr)] = 0.0
-        else:
-            logger.info(f"No-data value is {no_data_val}, replacing with 0.0")
-            rast_arr[rast_arr == no_data_val] = 0.0
+    if no_data_val is not None and not np.isnan(no_data_val):
+        logger.info(f"No-data value is {no_data_val}, replacing with NaN")
+        rast_arr[rast_arr == no_data_val] = np.nan
     if rast_arr.size == 0:
         raise ValueError("Raster array is empty after loading/cropping")
     if rast_arr.min() < 0:
