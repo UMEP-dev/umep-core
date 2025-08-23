@@ -433,24 +433,28 @@ def raster_preprocessing(
     tdsm: np.ndarray | None,
     trunk_ratio: float,
     pix_size: float,
-    local_window_m: int = 100,
-    amax_perc: float = 99.0,
+    amax_local_window_m: int = 100,
+    amax_local_perc: float = 99.0,
 ):
     # amax
     if dem is None:
         amaxvalue = float(np.nanmax(dsm) - np.nanmin(dsm))
     else:
         # Calculate local maxima/minima ranges
-        # Number of pixels to cover ~local_window_m radius (use a square window)
-        radius_pix = max(1, int(np.ceil(local_window_m / pix_size)))
+        # Number of pixels to cover ~amax_local_window_m radius (use a square window)
+        radius_pix = max(1, int(np.ceil(amax_local_window_m / pix_size)))
         window = 2 * radius_pix + 1
         try:
             local_min = ndi.minimum_filter(dsm, size=window, mode="nearest")
             local_range = dsm - local_min
-            amaxvalue = float(np.nanpercentile(local_range, amax_perc))
+            amaxvalue = float(np.nanpercentile(local_range, amax_local_perc))
+            logger.info(
+                f"amax {amaxvalue}m derived from {amax_local_window_m}m window and {amax_local_perc}th percentile."
+            )
         except Exception:
             # Fallback to global range if filtering fails for any reason
             amaxvalue = float(np.nanmax(dsm) - np.nanmin(dsm))
+            logger.warning(f"Failed to calculate local amax; using global range of {amaxvalue}m instead.")
 
     # CDSM is relative to flat surface without DEM
     if cdsm is None:
@@ -479,8 +483,6 @@ def raster_preprocessing(
         if vegmax > amaxvalue:
             logger.warning(f"Overriding amax {amaxvalue}m with veg max height of {vegmax}m.")
             amaxvalue = vegmax
-        else:
-            logger.info(f"Using amax {amaxvalue}m derived from {local_window_m}m window and {amax_perc}th percentile.")
 
         # Set vegetated pixels to DEM + CDSM otherwise DSM + CDSM
         if dem is not None:
