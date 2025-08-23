@@ -469,7 +469,7 @@ class RasterData:
             local_max = ndi.maximum_filter(self.dsm, size=window, mode="nearest")
             local_min = ndi.minimum_filter(self.dsm, size=window, mode="nearest")
             local_range = local_max - local_min
-            self.amaxvalue = float(np.nanpercentile(local_range, 99.9))
+            self.amaxvalue = float(np.nanpercentile(local_range, 99))
         except Exception:
             # Fallback to global range if filtering fails for any reason
             self.amaxvalue = float(self.dsm.max() - self.dsm.min())
