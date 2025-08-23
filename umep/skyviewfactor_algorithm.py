@@ -66,6 +66,8 @@ def generate_svf(
     cdsm_path: str | None = None,
     trans_veg_perc: float = 3,
     trunk_ratio_perc: float = 25,
+    amax_local_window_m: int = 100,
+    amax_local_perc: float = 99.9,
 ):
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
@@ -100,7 +102,14 @@ def generate_svf(
     trunk_ratio = trunk_ratio_perc / 100.0
 
     dsm, dem, cdsm, tdsm, amax = class_configs.raster_preprocessing(
-        dsm, dem, cdsm, None, trunk_ratio, dsm_pix_size, amax_perc=99.0
+        dsm,
+        dem,
+        cdsm,
+        None,
+        trunk_ratio,
+        dsm_pix_size,
+        amax_local_window_m=amax_local_window_m,
+        amax_local_perc=amax_local_perc,
     )
 
     common.save_raster(

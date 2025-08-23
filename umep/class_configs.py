@@ -434,7 +434,7 @@ def raster_preprocessing(
     trunk_ratio: float,
     pix_size: float,
     amax_local_window_m: int = 100,
-    amax_local_perc: float = 99.0,
+    amax_local_perc: float = 99.9,
 ):
     # amax
     if dem is None:
