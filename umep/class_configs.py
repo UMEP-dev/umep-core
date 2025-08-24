@@ -739,11 +739,15 @@ class ShadowMatrices:
             self.vegshmat = data["vegshadowmat"]
             self.vbshvegshmat = data["vbshmat"]
             if model_configs.use_veg_dem:
+                # TODO: thoughts on memory optimization for smaller machines / large arrays?
+                self.diffsh = self.shmat - (1 - self.vegshmat) * (1 - model_params.Tree_settings.Value.Transmissivity)
+                """
                 self.diffsh = np.zeros((raster_data.rows, raster_data.cols, self.shmat.shape[2]))
                 for i in range(0, self.shmat.shape[2]):
                     self.diffsh[:, :, i] = self.shmat[:, :, i] - (1 - self.vegshmat[:, :, i]) * (
                         1 - model_params.Tree_settings.Value.Transmissivity
                     )
+                """
                 logger.info("Shadow matrices with vegetation loaded.")
             else:
                 self.diffsh = self.shmat
