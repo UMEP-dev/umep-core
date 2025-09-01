@@ -727,7 +727,6 @@ class ShadowMatrices:
         self,
         model_configs: SolweigConfig,
         model_params,
-        raster_data: RasterData,
         svf_data: SvfData,
     ):
         self.use_aniso = model_configs.use_aniso

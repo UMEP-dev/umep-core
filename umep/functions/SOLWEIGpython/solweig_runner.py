@@ -105,7 +105,7 @@ class SolweigRun:
             self.load_poi_data()
             logger.info("POI data loaded from %s", self.config.poi_path)
         # Import shadow matrices (Anisotropic sky)
-        self.shadow_mats = ShadowMatrices(self.config, self.params, self.raster_data, self.svf_data)
+        self.shadow_mats = ShadowMatrices(self.config, self.params, self.svf_data)
         logger.info("Shadow matrices initialized")
         # % Ts parameterisation maps
         self.tg_maps = TgMaps(
