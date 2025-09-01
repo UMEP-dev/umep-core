@@ -735,12 +735,14 @@ class ShadowMatrices:
             logger.info("Loading anisotropic shadow matrices from %s", model_configs.aniso_path)
             aniso_path_str = str(common.check_path(model_configs.aniso_path, make_dir=False))
             data = np.load(aniso_path_str)
-            self.shmat = data["shadowmat"]
-            self.vegshmat = data["vegshadowmat"]
-            self.vbshvegshmat = data["vbshmat"]
+            self.shmat = data["shadowmat"].astype(np.float32)
+            self.vegshmat = data["vegshadowmat"].astype(np.float32)
+            self.vbshvegshmat = data["vbshmat"].astype(np.float32)
             if model_configs.use_veg_dem:
                 # TODO: thoughts on memory optimization for smaller machines / large arrays?
-                self.diffsh = self.shmat - (1 - self.vegshmat) * (1 - model_params.Tree_settings.Value.Transmissivity)
+                self.diffsh = (
+                    self.shmat - (1 - self.vegshmat) * (1 - model_params.Tree_settings.Value.Transmissivity)
+                ).astype(np.float32)
                 """
                 self.diffsh = np.zeros((raster_data.rows, raster_data.cols, self.shmat.shape[2]))
                 for i in range(0, self.shmat.shape[2]):
