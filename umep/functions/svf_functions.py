@@ -19,7 +19,7 @@ def annulus_weight(altitude, aziinterval):
     return weight
 
 
-def svfForProcessing153(dsm, vegdem, vegdem2, scale, usevegdem):
+def svfForProcessing153(dsm, vegdem, vegdem2, scale, usevegdem, amaxvalue):
     # memory
     dsm = dsm.astype(np.float32)
     vegdem = vegdem.astype(np.float32)
@@ -43,21 +43,12 @@ def svfForProcessing153(dsm, vegdem, vegdem2, scale, usevegdem):
     svfWaveg = np.zeros((rows, cols), dtype=np.float32)
     svfNaveg = np.zeros((rows, cols), dtype=np.float32)
 
-    # % amaxvalue
-    vegmax = vegdem.max()
-    amaxvalue = np.percentile(dsm, 99.5)  # cap outliers
-    amaxvalue = np.maximum(amaxvalue, vegmax)
-
-    # % Elevation vegdems if buildingDSM inclused ground heights
-    vegdem = vegdem + dsm
-    vegdem[vegdem == dsm] = 0
-    vegdem2 = vegdem2 + dsm
-    vegdem2[vegdem2 == dsm] = 0
+    # raster preprocessing handled upstream - don't duplicate
 
     # % Bush separation
-    bush = np.logical_not((vegdem2 * vegdem)) * vegdem
+    bush = np.logical_not(vegdem2 * vegdem) * vegdem
 
-    index = int(0)
+    index = 0
 
     # patch_option = 1 # 145 patches
     patch_option = 2  # 153 patches

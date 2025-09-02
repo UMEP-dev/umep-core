@@ -7,6 +7,15 @@ def Perez_v3(zen, azimuth, radD, radI, jday, patchchoice, patch_option):
     This function calculates distribution of luminance on the skyvault based on
     Perez luminince distribution model.
     
+    ALL-WEATHER MODEL FOR SKY LUMINANCE DISTRIBUTION
+    PRELIMINARY CONFIGURATION AND VALIDATION
+    R. PEREZ, R. SEALS, and J. MICHALSKY
+    Solar Energy Vol. 50, No, 3, pp. 235-245, 1993 
+    
+    Abstract--This article reports the development and evaluation of a new model for describing, from routine
+    irradiance measurements, the mean instantaneous sky luminance angular distribution patterns for all sky
+    conditions from overcast to clear, through partly cloudy, skies.
+
     Created by:
     Fredrik Lindberg 20120527, fredrikl@gvc.gu.se
     Gothenburg University, Sweden
@@ -115,7 +124,7 @@ def Perez_v3(zen, azimuth, radD, radI, jday, patchchoice, patch_option):
     Ibn = radI
 
     # Skyclearness
-    PerezClearness = ((Idh+Ibn)/(Idh+1.041*np.power(zen, 3)))/(1+1.041*np.power(zen, 3))
+    PerezClearness = ((Idh + Ibn) / Idh + 1.041 * np.power(zen, 3)) / (1 + 1.041 * np.power(zen, 3))
     # Extra terrestrial radiation
     day_angle = jday*2*np.pi/365
     #I0=1367*(1+0.033*np.cos((2*np.pi*jday)/365))
@@ -129,7 +138,8 @@ def Perez_v3(zen, azimuth, radD, radI, jday, patchchoice, patch_option):
     elif altitude < 0:   # below equation becomes complex
         AirMass = 1/np.sin(altitude)+0.50572*np.power(180*complex(altitude)/np.pi+6.07995, -1.6364)
     else:
-        AirMass = 1/np.sin(altitude)+0.50572*np.power(180*altitude/np.pi+6.07995, -1.6364)
+        # Added brackets to denominator: np.sin(0) was giving zero hence division by zero = infinity
+        AirMass = 1 / (np.sin(altitude) + 0.50572 * np.power(180 * altitude / np.pi + 6.07995, -1.6364))
 
     # Skybrightness
     # if altitude*rad2deg+6.07995>=0
@@ -144,17 +154,17 @@ def Perez_v3(zen, azimuth, radD, radI, jday, patchchoice, patch_option):
     # sky clearness bins
     if PerezClearness < 1.065:
         intClearness = 0
-    if PerezClearness > 1.065 and PerezClearness < 1.230:
+    elif PerezClearness < 1.230:
         intClearness = 1
-    if PerezClearness > 1.230 and PerezClearness < 1.500:
+    elif PerezClearness < 1.500:
         intClearness = 2
-    if PerezClearness > 1.500 and PerezClearness < 1.950:
+    elif PerezClearness < 1.950:
         intClearness = 3
-    if PerezClearness > 1.950 and PerezClearness < 2.800:
+    elif PerezClearness < 2.800:
         intClearness = 4
-    if PerezClearness > 2.800 and PerezClearness < 4.500:
+    elif PerezClearness < 4.500:
         intClearness = 5
-    if PerezClearness > 4.500 and PerezClearness < 6.200:
+    elif PerezClearness < 6.200:
         intClearness = 6
     if PerezClearness > 6.200:
         intClearness = 7
@@ -170,7 +180,7 @@ def Perez_v3(zen, azimuth, radD, radI, jday, patchchoice, patch_option):
         # different equations for c & d in clearness bin no. 1,  from Robinsson
         m_c = np.exp(np.power(PerezBrightness * (ccoeff[intClearness, 0] + ccoeff[intClearness, 1] * zen), ccoeff[intClearness, 2]))-1
         m_d = -np.exp(PerezBrightness * (dcoeff[intClearness, 0] + dcoeff[intClearness, 1] * zen)) + dcoeff[intClearness, 2] + \
-            PerezBrightness * dcoeff[intClearness, 3] * PerezBrightness
+            PerezBrightness * dcoeff[intClearness, 3]
 
     # print 'a = ', m_a
     # print 'b = ', m_b
@@ -200,12 +210,20 @@ def Perez_v3(zen, azimuth, radD, radI, jday, patchchoice, patch_option):
     cosSkySunAngle = np.sin(skyvaultalt) * np.sin(altitude) + \
                      np.cos(altitude) * np.cos(skyvaultalt) * np.cos(np.abs(skyvaultazi-azimuth))
 
-    # Main equation
-    lv = (1 + m_a * np.exp(m_b / np.cos(skyvaultzen))) * ((1 + m_c * np.exp(m_d * np.arccos(cosSkySunAngle)) +
-                                                           m_e * cosSkySunAngle * cosSkySunAngle))
+    cos_zen = np.cos(skyvaultzen)
+    exp_arg_h = m_b / cos_zen
+    ang = np.arccos(cosSkySunAngle)
+    exp_arg_c = m_d * ang
+    circumsolar = 1 + m_c * np.exp(exp_arg_c) + m_e * cosSkySunAngle * cosSkySunAngle
 
-    # Normalisation
-    lv = lv / np.sum(lv)
+    lv = (1 + m_a * np.exp(exp_arg_h)) * circumsolar
+
+    # Normalisation (with safeguard)
+    if np.any(lv < 0):
+        print("Warning: found negative Perez luminances, using uniform distribution as fallback.")
+        lv.fill(1.0 / lv.size)  # uniform fallback
+    else:
+        lv = lv / np.sum(lv)
 
     # plotting
     # axesm('stereo','Origin',[90 180],'MapLatLimit',[0 90],'Aspect','transverse')
