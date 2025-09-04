@@ -89,7 +89,7 @@ class SolweigRun:
         left_x = self.raster_data.trf_arr[0]
         top_y = self.raster_data.trf_arr[3]
         lng, lat = common.xy_to_lnglat(self.raster_data.crs_wkt, left_x, top_y)
-        alt = np.median(self.raster_data.dsm)
+        alt = float(np.nanmedian(self.raster_data.dsm))
         if alt < 0:
             alt = 3
         self.location = {"longitude": lng, "latitude": lat, "altitude": alt}
