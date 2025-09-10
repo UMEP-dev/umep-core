@@ -55,7 +55,7 @@ class SolweigConfig:
     use_veg_dem: bool = True
     conifer: bool = False
     person_cylinder: bool = True
-    utc: bool = True
+    utc: int = 0
     use_landcover: bool = True
     use_dem_for_buildings: bool = False
     use_aniso: bool = False
@@ -118,7 +118,11 @@ class SolweigConfig:
         if not self.dsm_path:
             logger.error("DSM path must be set.")
             raise ValueError("DSM path must be set.")
-        self.utc = bool(self.utc)
+        if not isinstance(self.utc, int):
+            try:
+                self.utc = int(self.utc)
+            except ValueError as err:
+                raise ValueError("UTC offset must be an integer.") from err
         if (self.met_path is None and self.epw_path is None) or (self.met_path and self.epw_path):
             logger.error("Provide either MET or EPW weather file.")
             raise ValueError("Provide either MET or EPW weather file.")
@@ -206,7 +210,7 @@ class EnvironData:
         P: np.ndarray,
         Ws: np.ndarray,
         location: dict | None,
-        UTC: bool = True,
+        UTC: int = 0,
     ):
         """
         This function is used to process the input meteorological file.
