@@ -525,7 +525,14 @@ class RasterData:
     lcgrid: Optional[np.ndarray]
     buildings: Optional[np.ndarray]
 
-    def __init__(self, model_configs: SolweigConfig, model_params, svf_data: SvfData):
+    def __init__(
+        self,
+        model_configs: SolweigConfig,
+        model_params,
+        svf_data: SvfData,
+        amax_local_window_m: int = 100,
+        amax_local_perc: float = 99.9,
+    ):
         # Load DSM
         self.dsm, self.trf_arr, self.crs_wkt, self.nd_val = common.load_raster(model_configs.dsm_path, bbox=None)
         logger.info("DSM loaded from %s", model_configs.dsm_path)
@@ -612,6 +619,8 @@ class RasterData:
             self.tdsm,
             model_params.Tree_settings.Value.Trunk_ratio,
             self.trf_arr[1],
+            amax_local_window_m,
+            amax_local_perc,
         )
 
         # bushes etc

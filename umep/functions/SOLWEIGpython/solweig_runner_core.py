@@ -15,10 +15,16 @@ from .solweig_runner import SolweigRun
 class SolweigRunCore(SolweigRun):
     """Run SOLWEIG in standalone mode without QGIS."""
 
-    def __init__(self, config_path_str: str, params_json_path: str):
+    def __init__(
+        self,
+        config_path_str: str,
+        params_json_path: str,
+        amax_local_window_m: int = 100,
+        amax_local_perc: float = 99.9,
+    ):
         config = SolweigConfig()
         config.from_file(config_path_str)
-        super().__init__(config, params_json_path)
+        super().__init__(config, params_json_path, amax_local_window_m, amax_local_perc)
 
     def prep_progress(self, num: int) -> None:
         """Prepare progress for environment."""

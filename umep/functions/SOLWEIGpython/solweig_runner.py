@@ -56,7 +56,13 @@ class SolweigRun:
     shadow_mats: ShadowMatrices
     walls_data: WallsData
 
-    def __init__(self, config: SolweigConfig, params_json_path: str):
+    def __init__(
+        self,
+        config: SolweigConfig,
+        params_json_path: str,
+        amax_local_window_m: int = 100,
+        amax_local_perc: float = 99.9,
+    ):
         """Initialize the SOLWEIG runner with configuration and parameters."""
         logger.info("Starting SOLWEIG setup")
         self.config = config
@@ -84,7 +90,13 @@ class SolweigRun:
             raise RuntimeError(f"Failed to load parameters from {params_json_path}: {e}")
         # Initialize SVF and Raster data
         self.svf_data = SvfData(self.config)
-        self.raster_data = RasterData(self.config, self.params, self.svf_data)
+        self.raster_data = RasterData(
+            self.config,
+            self.params,
+            self.svf_data,
+            amax_local_window_m,
+            amax_local_perc,
+        )
         # Location data
         left_x = self.raster_data.trf_arr[0]
         top_y = self.raster_data.trf_arr[3]

@@ -8,11 +8,18 @@ from .wallOfInterest import pointOfInterest
 class SolweigRunQgis(SolweigRun):
     """Run SOLWEIG in QGIS environment."""
 
-    def __init__(self, config_path_str: str, params_json_path: str, feedback: Any):
+    def __init__(
+        self,
+        config_path_str: str,
+        params_json_path: str,
+        feedback: Any,
+        amax_local_window_m: int = 100,
+        amax_local_perc: float = 99.9,
+    ):
         """ """
         config = SolweigConfig()
         config.from_file(config_path_str)
-        super().__init__(config, params_json_path)
+        super().__init__(config, params_json_path, amax_local_window_m, amax_local_perc)
         self.progress = feedback
 
     def prep_progress(self, num: int) -> None:
