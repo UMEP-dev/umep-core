@@ -234,9 +234,9 @@ class EnvironData:
         data_len = len(self.YYYY)
         self.dectime = self.DOY + self.hours / 24 + self.minu / (60 * 24.0)
         if data_len == 1:
-            halftimestepdec = 0
+            halftimestepdec = 0.0
         else:
-            halftimestepdec = (self.dectime[1] - self.dectime[0]) / 2.0
+            halftimestepdec = float((self.dectime[1] - self.dectime[0]) / 2.0)  # convert from f32
         time = {
             "sec": 0,
             "UTC": UTC,
@@ -244,15 +244,15 @@ class EnvironData:
         sunmaximum = 0.0
 
         # initialize arrays
-        self.altitude = np.empty(data_len)
-        self.azimuth = np.empty(data_len)
-        self.zen = np.empty(data_len)
-        self.jday = np.empty(data_len)
-        self.leafon = np.empty(data_len)
-        self.psi = np.empty(data_len)
-        self.altmax = np.empty(data_len)
-        self.Twater = np.empty(data_len)
-        self.CI = np.empty(data_len)
+        self.altitude = np.empty(data_len, dtype=np.float32)
+        self.azimuth = np.empty(data_len, dtype=np.float32)
+        self.zen = np.empty(data_len, dtype=np.float32)
+        self.jday = np.empty(data_len, dtype=np.float32)
+        self.leafon = np.empty(data_len, dtype=np.float32)
+        self.psi = np.empty(data_len, dtype=np.float32)
+        self.altmax = np.empty(data_len, dtype=np.float32)
+        self.Twater = np.empty(data_len, dtype=np.float32)
+        self.CI = np.empty(data_len, dtype=np.float32)
 
         sunmax = dict()
 
@@ -395,22 +395,32 @@ class SvfData:
         with zipfile.ZipFile(svf_path_str, "r") as zip_ref:
             zip_ref.extractall(in_path_str)
         # Load SVF rasters
-        self.svf, _, _, _ = common.load_raster(in_path_str + "/" + "svf.tif")
-        self.svf_east, _, _, _ = common.load_raster(in_path_str + "/" + "svfE.tif")
-        self.svf_south, _, _, _ = common.load_raster(in_path_str + "/" + "svfS.tif")
-        self.svf_west, _, _, _ = common.load_raster(in_path_str + "/" + "svfW.tif")
-        self.svf_north, _, _, _ = common.load_raster(in_path_str + "/" + "svfN.tif")
+        self.svf, _, _, _ = common.load_raster(in_path_str + "/" + "svf.tif", coerce_f64_to_f32=True)
+        self.svf_east, _, _, _ = common.load_raster(in_path_str + "/" + "svfE.tif", coerce_f64_to_f32=True)
+        self.svf_south, _, _, _ = common.load_raster(in_path_str + "/" + "svfS.tif", coerce_f64_to_f32=True)
+        self.svf_west, _, _, _ = common.load_raster(in_path_str + "/" + "svfW.tif", coerce_f64_to_f32=True)
+        self.svf_north, _, _, _ = common.load_raster(in_path_str + "/" + "svfN.tif", coerce_f64_to_f32=True)
         if model_configs.use_veg_dem:
-            self.svf_veg, _, _, _ = common.load_raster(in_path_str + "/" + "svfveg.tif")
-            self.svf_veg_east, _, _, _ = common.load_raster(in_path_str + "/" + "svfEveg.tif")
-            self.svf_veg_south, _, _, _ = common.load_raster(in_path_str + "/" + "svfSveg.tif")
-            self.svf_veg_west, _, _, _ = common.load_raster(in_path_str + "/" + "svfWveg.tif")
-            self.svf_veg_north, _, _, _ = common.load_raster(in_path_str + "/" + "svfNveg.tif")
-            self.svf_veg_blocks_bldg_sh, _, _, _ = common.load_raster(in_path_str + "/" + "svfaveg.tif")
-            self.svf_veg_blocks_bldg_sh_east, _, _, _ = common.load_raster(in_path_str + "/" + "svfEaveg.tif")
-            self.svf_veg_blocks_bldg_sh_south, _, _, _ = common.load_raster(in_path_str + "/" + "svfSaveg.tif")
-            self.svf_veg_blocks_bldg_sh_west, _, _, _ = common.load_raster(in_path_str + "/" + "svfWaveg.tif")
-            self.svf_veg_blocks_bldg_sh_north, _, _, _ = common.load_raster(in_path_str + "/" + "svfNaveg.tif")
+            self.svf_veg, _, _, _ = common.load_raster(in_path_str + "/" + "svfveg.tif", coerce_f64_to_f32=True)
+            self.svf_veg_east, _, _, _ = common.load_raster(in_path_str + "/" + "svfEveg.tif", coerce_f64_to_f32=True)
+            self.svf_veg_south, _, _, _ = common.load_raster(in_path_str + "/" + "svfSveg.tif", coerce_f64_to_f32=True)
+            self.svf_veg_west, _, _, _ = common.load_raster(in_path_str + "/" + "svfWveg.tif", coerce_f64_to_f32=True)
+            self.svf_veg_north, _, _, _ = common.load_raster(in_path_str + "/" + "svfNveg.tif", coerce_f64_to_f32=True)
+            self.svf_veg_blocks_bldg_sh, _, _, _ = common.load_raster(
+                in_path_str + "/" + "svfaveg.tif", coerce_f64_to_f32=True
+            )
+            self.svf_veg_blocks_bldg_sh_east, _, _, _ = common.load_raster(
+                in_path_str + "/" + "svfEaveg.tif", coerce_f64_to_f32=True
+            )
+            self.svf_veg_blocks_bldg_sh_south, _, _, _ = common.load_raster(
+                in_path_str + "/" + "svfSaveg.tif", coerce_f64_to_f32=True
+            )
+            self.svf_veg_blocks_bldg_sh_west, _, _, _ = common.load_raster(
+                in_path_str + "/" + "svfWaveg.tif", coerce_f64_to_f32=True
+            )
+            self.svf_veg_blocks_bldg_sh_north, _, _, _ = common.load_raster(
+                in_path_str + "/" + "svfNaveg.tif", coerce_f64_to_f32=True
+            )
             logger.info("Vegetation SVF data loaded.")
         else:
             self.svf_veg = np.ones_like(self.svf)
@@ -538,7 +548,9 @@ class RasterData:
         amax_local_perc: float = 99.9,
     ):
         # Load DSM
-        self.dsm, self.trf_arr, self.crs_wkt, self.nd_val = common.load_raster(model_configs.dsm_path, bbox=None)
+        self.dsm, self.trf_arr, self.crs_wkt, self.nd_val = common.load_raster(
+            model_configs.dsm_path, bbox=None, coerce_f64_to_f32=True
+        )
         logger.info("DSM loaded from %s", model_configs.dsm_path)
         self.scale = 1 / self.trf_arr[1]
         self.rows = self.dsm.shape[0]
@@ -552,7 +564,9 @@ class RasterData:
 
         # WALLS
         # heights
-        self.wallheight, wh_trf, wh_crs, _ = common.load_raster(model_configs.wh_path, bbox=None)
+        self.wallheight, wh_trf, wh_crs, _ = common.load_raster(
+            model_configs.wh_path, bbox=None, coerce_f64_to_f32=True
+        )
         if not self.wallheight.shape == self.dsm.shape:
             raise ValueError("Mismatching raster shapes for wall heights and DSM.")
         if not np.allclose(self.trf_arr, wh_trf):
@@ -561,7 +575,9 @@ class RasterData:
             raise ValueError("Mismatching CRS for wall heights and DSM.")
         logger.info("Wall heights loaded")
         # aspects
-        self.wallaspect, wa_trf, wa_crs, _ = common.load_raster(model_configs.wa_path, bbox=None)
+        self.wallaspect, wa_trf, wa_crs, _ = common.load_raster(
+            model_configs.wa_path, bbox=None, coerce_f64_to_f32=True
+        )
         if not self.wallaspect.shape == self.dsm.shape:
             raise ValueError("Mismatching raster shapes for wall aspects and DSM.")
         if not np.allclose(self.trf_arr, wa_trf):
@@ -574,7 +590,7 @@ class RasterData:
         # TODO: Is DEM always provided?
         if model_configs.dem_path:
             dem_path_str = str(common.check_path(model_configs.dem_path))
-            self.dem, dem_trf, dem_crs, dem_nd_val = common.load_raster(dem_path_str, bbox=None)
+            self.dem, dem_trf, dem_crs, dem_nd_val = common.load_raster(dem_path_str, bbox=None, coerce_f64_to_f32=True)
             if not self.dem.shape == self.dsm.shape:
                 raise ValueError("Mismatching raster shapes for DEM and CDSM.")
             if dem_crs is not None and dem_crs != self.crs_wkt:
@@ -592,7 +608,9 @@ class RasterData:
 
         # Vegetation
         if model_configs.use_veg_dem:
-            self.cdsm, vegdsm_trf, vegdsm_crs, _ = common.load_raster(model_configs.cdsm_path, bbox=None)
+            self.cdsm, vegdsm_trf, vegdsm_crs, _ = common.load_raster(
+                model_configs.cdsm_path, bbox=None, coerce_f64_to_f32=True
+            )
             if not self.cdsm.shape == self.dsm.shape:
                 raise ValueError("Mismatching raster shapes for DSM and CDSM.")
             if vegdsm_crs is not None and vegdsm_crs != self.crs_wkt:
@@ -602,7 +620,9 @@ class RasterData:
             logger.info("Vegetation DSM loaded from %s", model_configs.cdsm_path)
             # Tree DSM
             if model_configs.tdsm_path:
-                self.tdsm, vegdsm2_trf, vegdsm2_crs, _ = common.load_raster(model_configs.tdsm_path, bbox=None)
+                self.tdsm, vegdsm2_trf, vegdsm2_crs, _ = common.load_raster(
+                    model_configs.tdsm_path, bbox=None, coerce_f64_to_f32=True
+                )
                 if not self.tdsm.shape == self.dsm.shape:
                     raise ValueError("Mismatching raster shapes for DSM and CDSM.")
                 if vegdsm2_crs is not None and vegdsm2_crs != self.crs_wkt:
@@ -635,7 +655,7 @@ class RasterData:
             )
         else:
             logger.info("Vegetation DEM not used; vegetation arrays set to None.")
-            self.bush = np.zeros([self.rows, self.cols])
+            self.bush = np.zeros([self.rows, self.cols], dtype=np.float32)
             self.svfbuveg = svf_data.svf
 
         common.save_raster(
@@ -644,6 +664,7 @@ class RasterData:
             self.trf_arr,
             self.crs_wkt,
             self.nd_val,
+            coerce_f64_to_f32=True,
         )
         common.save_raster(
             model_configs.output_dir + "/input-cdsm.tif",
@@ -651,6 +672,7 @@ class RasterData:
             self.trf_arr,
             self.crs_wkt,
             self.nd_val,
+            coerce_f64_to_f32=True,
         )
         common.save_raster(
             model_configs.output_dir + "/input-tdsm.tif",
@@ -658,6 +680,7 @@ class RasterData:
             self.trf_arr,
             self.crs_wkt,
             self.nd_val,
+            coerce_f64_to_f32=True,
         )
         common.save_raster(
             model_configs.output_dir + "/input-svfbuveg.tif",
@@ -665,6 +688,7 @@ class RasterData:
             self.trf_arr,
             self.crs_wkt,
             self.nd_val,
+            coerce_f64_to_f32=True,
         )
         common.save_raster(
             model_configs.output_dir + "/input-bush.tif",
@@ -672,12 +696,13 @@ class RasterData:
             self.trf_arr,
             self.crs_wkt,
             self.nd_val,
+            coerce_f64_to_f32=True,
         )
 
         # Land cover
         if model_configs.use_landcover:
             lc_path_str = str(common.check_path(model_configs.lc_path))
-            self.lcgrid, lc_trf, lc_crs, _ = common.load_raster(lc_path_str, bbox=None)
+            self.lcgrid, lc_trf, lc_crs, _ = common.load_raster(lc_path_str, bbox=None, coerce_f64_to_f32=True)
             if not self.lcgrid.shape == self.dsm.shape:
                 raise ValueError("Mismatching raster shapes for land cover and DSM.")
             if lc_crs is not None and lc_crs != self.crs_wkt:
@@ -720,6 +745,7 @@ class RasterData:
                 self.trf_arr,
                 self.crs_wkt,
                 self.nd_val,
+                coerce_f64_to_f32=True,
             )
             logger.info("Buildings raster saved to %s/buildings.tif", model_configs.output_dir)
 
@@ -781,7 +807,7 @@ class ShadowMatrices:
             self.asvf = np.arccos(np.sqrt(svf_data.svf))
 
             # Empty array for steradians
-            self.steradians = np.zeros(self.shmat.shape[2])
+            self.steradians = np.zeros(self.shmat.shape[2], dtype=np.float32)
         else:
             # no anisotropic sky
             # downstream functions only access these if use_aniso is True
@@ -823,13 +849,13 @@ class TgMaps:
         This is a vectorized version that avoids looping over pixels.
         """
         # Initialization of maps
-        self.Knight = np.zeros((raster_data.rows, raster_data.cols))
-        self.Tgmap1 = np.zeros((raster_data.rows, raster_data.cols))
-        self.Tgmap1E = np.zeros((raster_data.rows, raster_data.cols))
-        self.Tgmap1S = np.zeros((raster_data.rows, raster_data.cols))
-        self.Tgmap1W = np.zeros((raster_data.rows, raster_data.cols))
-        self.Tgmap1N = np.zeros((raster_data.rows, raster_data.cols))
-        self.TgOut1 = np.zeros((raster_data.rows, raster_data.cols))
+        self.Knight = np.zeros((raster_data.rows, raster_data.cols), dtype=np.float32)
+        self.Tgmap1 = np.zeros((raster_data.rows, raster_data.cols), dtype=np.float32)
+        self.Tgmap1E = np.zeros((raster_data.rows, raster_data.cols), dtype=np.float32)
+        self.Tgmap1S = np.zeros((raster_data.rows, raster_data.cols), dtype=np.float32)
+        self.Tgmap1W = np.zeros((raster_data.rows, raster_data.cols), dtype=np.float32)
+        self.Tgmap1N = np.zeros((raster_data.rows, raster_data.cols), dtype=np.float32)
+        self.TgOut1 = np.zeros((raster_data.rows, raster_data.cols), dtype=np.float32)
 
         # Set up the Tg maps based on whether land cover is used
         if use_landcover is False:
@@ -955,7 +981,7 @@ class WallsData:
             self.voxelMaps = None
             self.voxelTable = None
             self.timeStep = 0
-            self.walls_scheme = np.ones((raster_data.rows, raster_data.cols)) * 10.0
-            self.dirwalls_scheme = np.ones((raster_data.rows, raster_data.cols)) * 10.0
+            self.walls_scheme = np.ones((raster_data.rows, raster_data.cols), dtype=np.float32) * 10.0
+            self.dirwalls_scheme = np.ones((raster_data.rows, raster_data.cols), dtype=np.float32) * 10.0
             self.met_for_xarray = None
             logger.info("Wall scheme not used; default wall data initialized.")

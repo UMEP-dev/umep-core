@@ -42,6 +42,7 @@ common.save_raster(
     cdsm_rast,
     cdsm_transf.to_gdal(),
     CRS.from_epsg(working_crs).to_wkt(),
+    coerce_f64_to_f32=True,
 )
 # %%
 # wall info for SOLWEIG

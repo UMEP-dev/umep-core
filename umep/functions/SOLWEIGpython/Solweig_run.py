@@ -62,7 +62,9 @@ def solweig_run(configPath, feedback):
     standAlone = int(configDict["standalone"])
 
     # Load DSM
-    dsm_arr, dsm_trf_arr, dsm_crs_wkt, dsm_nd_val = common.load_raster(configDict["filepath_dsm"], bbox=None)
+    dsm_arr, dsm_trf_arr, dsm_crs_wkt, dsm_nd_val = common.load_raster(
+        configDict["filepath_dsm"], bbox=None, coerce_f64_to_f32=True
+    )
     # trf is a list: [top left x, w-e pixel size, rotation, top left y, rotation, n-s pixel size]
     scale = 1 / dsm_trf_arr[1]  # pixel resolution in metres
     left_x = dsm_trf_arr[0]
@@ -88,9 +90,9 @@ def solweig_run(configPath, feedback):
     trunkratio = param["Tree_settings"]["Value"]["Trunk_ratio"]
     usevegdem = int(configDict["usevegdem"])
     if usevegdem == 1:
-        vegdsm, _, _, _ = common.load_raster(configDict["filepath_cdsm"], bbox=None)
+        vegdsm, _, _, _ = common.load_raster(configDict["filepath_cdsm"], bbox=None, coerce_f64_to_f32=True)
         if configDict["filepath_tdsm"] != "":
-            vegdsm2, _, _, _ = common.load_raster(configDict["filepath_tdsm"], bbox=None)
+            vegdsm2, _, _, _ = common.load_raster(configDict["filepath_tdsm"], bbox=None, coerce_f64_to_f32=True)
         else:
             vegdsm2 = vegdsm * trunkratio
     else:
@@ -100,14 +102,14 @@ def solweig_run(configPath, feedback):
     # Land cover
     landcover = int(configDict["landcover"])
     if landcover == 1:
-        lcgrid, _, _, _ = common.load_raster(configDict["filepath_lc"], bbox=None)
+        lcgrid, _, _, _ = common.load_raster(configDict["filepath_lc"], bbox=None, coerce_f64_to_f32=True)
     else:
         lcgrid = 0
 
     # DEM for buildings #TODO: fix nodata in standalone
     demforbuild = int(configDict["demforbuild"])
     if demforbuild == 1:
-        dem, _, _, dem_nd_val = common.load_raster(configDict["filepath_dem"], bbox=None)
+        dem, _, _, dem_nd_val = common.load_raster(configDict["filepath_dem"], bbox=None, coerce_f64_to_f32=True)
         # response to issue and #230
         dem[dem == dem_nd_val] = 0.0
         if dem.min() < 0:
@@ -121,24 +123,44 @@ def solweig_run(configPath, feedback):
     zip.extractall(configDict["working_dir"])
     zip.close()
 
-    svf, _, _, _ = common.load_raster(configDict["working_dir"] + "/svf.tif", bbox=None)
-    svfN, _, _, _ = common.load_raster(configDict["working_dir"] + "/svfN.tif", bbox=None)
-    svfS, _, _, _ = common.load_raster(configDict["working_dir"] + "/svfS.tif", bbox=None)
-    svfE, _, _, _ = common.load_raster(configDict["working_dir"] + "/svfE.tif", bbox=None)
-    svfW, _, _, _ = common.load_raster(configDict["working_dir"] + "/svfW.tif", bbox=None)
+    svf, _, _, _ = common.load_raster(configDict["working_dir"] + "/svf.tif", bbox=None, coerce_f64_to_f32=True)
+    svfN, _, _, _ = common.load_raster(configDict["working_dir"] + "/svfN.tif", bbox=None, coerce_f64_to_f32=True)
+    svfS, _, _, _ = common.load_raster(configDict["working_dir"] + "/svfS.tif", bbox=None, coerce_f64_to_f32=True)
+    svfE, _, _, _ = common.load_raster(configDict["working_dir"] + "/svfE.tif", bbox=None, coerce_f64_to_f32=True)
+    svfW, _, _, _ = common.load_raster(configDict["working_dir"] + "/svfW.tif", bbox=None, coerce_f64_to_f32=True)
 
     if usevegdem == 1:
-        svfveg, _, _, _ = common.load_raster(configDict["working_dir"] + "/svfveg.tif", bbox=None)
-        svfNveg, _, _, _ = common.load_raster(configDict["working_dir"] + "/svfNveg.tif", bbox=None)
-        svfSveg, _, _, _ = common.load_raster(configDict["working_dir"] + "/svfSveg.tif", bbox=None)
-        svfEveg, _, _, _ = common.load_raster(configDict["working_dir"] + "/svfEveg.tif", bbox=None)
-        svfWveg, _, _, _ = common.load_raster(configDict["working_dir"] + "/svfWveg.tif", bbox=None)
+        svfveg, _, _, _ = common.load_raster(
+            configDict["working_dir"] + "/svfveg.tif", bbox=None, coerce_f64_to_f32=True
+        )
+        svfNveg, _, _, _ = common.load_raster(
+            configDict["working_dir"] + "/svfNveg.tif", bbox=None, coerce_f64_to_f32=True
+        )
+        svfSveg, _, _, _ = common.load_raster(
+            configDict["working_dir"] + "/svfSveg.tif", bbox=None, coerce_f64_to_f32=True
+        )
+        svfEveg, _, _, _ = common.load_raster(
+            configDict["working_dir"] + "/svfEveg.tif", bbox=None, coerce_f64_to_f32=True
+        )
+        svfWveg, _, _, _ = common.load_raster(
+            configDict["working_dir"] + "/svfWveg.tif", bbox=None, coerce_f64_to_f32=True
+        )
 
-        svfaveg, _, _, _ = common.load_raster(configDict["working_dir"] + "/svfaveg.tif", bbox=None)
-        svfNaveg, _, _, _ = common.load_raster(configDict["working_dir"] + "/svfNaveg.tif", bbox=None)
-        svfSaveg, _, _, _ = common.load_raster(configDict["working_dir"] + "/svfSaveg.tif", bbox=None)
-        svfEaveg, _, _, _ = common.load_raster(configDict["working_dir"] + "/svfEaveg.tif", bbox=None)
-        svfWaveg, _, _, _ = common.load_raster(configDict["working_dir"] + "/svfWaveg.tif", bbox=None)
+        svfaveg, _, _, _ = common.load_raster(
+            configDict["working_dir"] + "/svfaveg.tif", bbox=None, coerce_f64_to_f32=True
+        )
+        svfNaveg, _, _, _ = common.load_raster(
+            configDict["working_dir"] + "/svfNaveg.tif", bbox=None, coerce_f64_to_f32=True
+        )
+        svfSaveg, _, _, _ = common.load_raster(
+            configDict["working_dir"] + "/svfSaveg.tif", bbox=None, coerce_f64_to_f32=True
+        )
+        svfEaveg, _, _, _ = common.load_raster(
+            configDict["working_dir"] + "/svfEaveg.tif", bbox=None, coerce_f64_to_f32=True
+        )
+        svfWaveg, _, _, _ = common.load_raster(
+            configDict["working_dir"] + "/svfWaveg.tif", bbox=None, coerce_f64_to_f32=True
+        )
     else:
         svfveg = np.ones((rows, cols))
         svfNveg = np.ones((rows, cols))
@@ -156,8 +178,8 @@ def solweig_run(configPath, feedback):
     # %matlab crazyness around 0
     svfalfa = np.arcsin(np.exp(np.log(1.0 - tmp) / 2.0))
 
-    wallheight, _, _, _ = common.load_raster(configDict["filepath_wh"], bbox=None)
-    wallaspect, _, _, _ = common.load_raster(configDict["filepath_wa"], bbox=None)
+    wallheight, _, _, _ = common.load_raster(configDict["filepath_wh"], bbox=None, coerce_f64_to_f32=True)
+    wallaspect, _, _, _ = common.load_raster(configDict["filepath_wa"], bbox=None, coerce_f64_to_f32=True)
 
     # Metdata
     headernum = 1
@@ -318,6 +340,7 @@ def solweig_run(configPath, feedback):
             dsm_trf_arr,
             dsm_crs_wkt,
             dsm_nd_val,
+            coerce_f64_to_f32=True,
         )
 
     # Import shadow matrices (Anisotropic sky)
@@ -825,6 +848,7 @@ def solweig_run(configPath, feedback):
                 dsm_trf_arr,
                 dsm_crs_wkt,
                 dsm_nd_val,
+                coerce_f64_to_f32=True,
             )
         if configDict["outputkup"] == "1":
             common.save_raster(
@@ -833,6 +857,7 @@ def solweig_run(configPath, feedback):
                 dsm_trf_arr,
                 dsm_crs_wkt,
                 dsm_nd_val,
+                coerce_f64_to_f32=True,
             )
         if configDict["outputkdown"] == "1":
             common.save_raster(
@@ -841,6 +866,7 @@ def solweig_run(configPath, feedback):
                 dsm_trf_arr,
                 dsm_crs_wkt,
                 dsm_nd_val,
+                coerce_f64_to_f32=True,
             )
         if configDict["outputlup"] == "1":
             common.save_raster(
@@ -849,6 +875,7 @@ def solweig_run(configPath, feedback):
                 dsm_trf_arr,
                 dsm_crs_wkt,
                 dsm_nd_val,
+                coerce_f64_to_f32=True,
             )
         if configDict["outputldown"] == "1":
             common.save_raster(
@@ -857,6 +884,7 @@ def solweig_run(configPath, feedback):
                 dsm_trf_arr,
                 dsm_crs_wkt,
                 dsm_nd_val,
+                coerce_f64_to_f32=True,
             )
         if configDict["outputsh"] == "1":
             common.save_raster(
@@ -865,6 +893,7 @@ def solweig_run(configPath, feedback):
                 dsm_trf_arr,
                 dsm_crs_wkt,
                 dsm_nd_val,
+                coerce_f64_to_f32=True,
             )
         if configDict["outputkdiff"] == "1":
             common.save_raster(
@@ -873,6 +902,7 @@ def solweig_run(configPath, feedback):
                 dsm_trf_arr,
                 dsm_crs_wkt,
                 dsm_nd_val,
+                coerce_f64_to_f32=True,
             )
 
         # Sky view image of patches
@@ -961,4 +991,5 @@ def solweig_run(configPath, feedback):
         dsm_trf_arr,
         dsm_crs_wkt,
         dsm_nd_val,
+        coerce_f64_to_f32=True,
     )

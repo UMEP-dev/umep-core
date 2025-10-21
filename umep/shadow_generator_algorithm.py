@@ -65,7 +65,7 @@ def generate_shadows(
     trans_veg: float = 3,
     trunk_zone_ht_perc: float = 0.25,
 ):
-    dsm, dsm_transf, dsm_crs, _dsm_nd = common.load_raster(dsm_path, bbox)
+    dsm, dsm_transf, dsm_crs, _dsm_nd = common.load_raster(dsm_path, bbox, coerce_f64_to_f32=True)
     dsm_height, dsm_width = dsm.shape  # y rows by x cols
     dsm_scale = 1 / dsm_transf[1]
     # y is flipped - so return max for lower row
@@ -85,7 +85,9 @@ def generate_shadows(
 
     if veg_dsm_path is not None:
         usevegdem = 1
-        veg_dsm, veg_dsm_transf, veg_dsm_crs, _veg_dsm_nd = common.load_raster(veg_dsm_path, bbox)
+        veg_dsm, veg_dsm_transf, veg_dsm_crs, _veg_dsm_nd = common.load_raster(
+            veg_dsm_path, bbox, coerce_f64_to_f32=True
+        )
         veg_dsm_height, veg_dsm_width = veg_dsm.shape
         if not (veg_dsm_width == dsm_width) & (veg_dsm_height == dsm_height):
             raise ValueError("Error in Vegetation Canopy DSM: All rasters must be of same extent and resolution")
@@ -102,11 +104,11 @@ def generate_shadows(
     if wall_aspect_path and wall_ht_path:
         print("Facade shadow scheme activated")
         wallsh = 1
-        wh_rast, wh_transf, wh_crs, _wh_nd = common.load_raster(wall_ht_path, bbox)
+        wh_rast, wh_transf, wh_crs, _wh_nd = common.load_raster(wall_ht_path, bbox, coerce_f64_to_f32=True)
         wh_height, wh_width = wh_rast.shape
         if not (wh_width == dsm_width) & (wh_height == dsm_height):
             raise ValueError("Error in Wall height raster: All rasters must be of same extent and resolution")
-        wa_rast, wa_transf, wa_crs, _wa_nd = common.load_raster(wall_aspect_path, bbox)
+        wa_rast, wa_transf, wa_crs, _wa_nd = common.load_raster(wall_aspect_path, bbox, coerce_f64_to_f32=True)
         wa_height, wa_width = wa_rast.shape
         if not (wa_width == dsm_width) & (wa_height == dsm_height):
             raise ValueError("Error in Wall aspect raster: All rasters must be of same extent and resolution")
@@ -168,4 +170,10 @@ def generate_shadows(
     )
 
     shfinal = shadowresult["shfinal"]
-    common.save_raster(out_path_str + "/shadow_composite.tif", shfinal, dsm_transf, dsm_crs)
+    common.save_raster(
+        out_path_str + "/shadow_composite.tif",
+        shfinal,
+        dsm_transf,
+        dsm_crs,
+        coerce_f64_to_f32=True,
+    )

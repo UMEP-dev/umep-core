@@ -61,8 +61,28 @@ def check_path(path_str: str | Path, make_dir: bool = False) -> Path:
 
 
 def save_raster(
-    out_path_str: str, data_arr: np.ndarray, trf_arr: list[float], crs_wkt: str, no_data_val: float = -9999
+    out_path_str: str,
+    data_arr: np.ndarray,
+    trf_arr: list[float],
+    crs_wkt: str,
+    no_data_val: float = -9999,
+    coerce_f64_to_f32: bool = True,
 ):
+    """
+    Save raster to GeoTIFF.
+
+    Args:
+        out_path_str: Output file path
+        data_arr: 2D numpy array to save
+        trf_arr: GDAL-style geotransform [top_left_x, pixel_width, rotation, top_left_y, rotation, pixel_height]
+        crs_wkt: CRS in WKT format
+        no_data_val: No-data value to use
+        coerce_f64_to_f32: If True, convert float64 arrays to float32 before saving (default: True for memory efficiency)
+    """
+    # Only convert float64 to float32, leave ints/bools unchanged
+    if coerce_f64_to_f32 and data_arr.dtype == np.float64:
+        data_arr = data_arr.astype(np.float32)
+
     attempts = 2
     while attempts > 0:
         attempts -= 1
@@ -119,8 +139,20 @@ def save_raster(
 
 
 def load_raster(
-    path_str: str, bbox: list[int] | None = None, band: int = 0
+    path_str: str, bbox: list[int] | None = None, band: int = 0, coerce_f64_to_f32: bool = True
 ) -> tuple[np.ndarray, list[float], str | None, float | None]:
+    """
+    Load raster, optionally crop to bbox.
+
+    Args:
+        path_str: Path to raster file
+        bbox: Optional bounding box [minx, miny, maxx, maxy]
+        band: Band index to read (0-based)
+        coerce_f64_to_f32: If True, coerce array to float32 (default: True for memory efficiency)
+
+    Returns:
+        Tuple of (array, transform, crs_wkt, no_data_value)
+    """
     # Load raster, optionally crop to bbox
     path = check_path(path_str, make_dir=False)
     if not path.exists():
@@ -150,9 +182,15 @@ def load_raster(
             if rast.ndim == 3:
                 if band < 0 or band >= rast.shape[0]:
                     raise IndexError(f"Requested band {band} out of range; raster has {rast.shape[0]} band(s)")
-                rast_arr = rast[band].astype(float)
+                rast_arr = rast[band]
+                # Only convert float64 to float32, leave ints/bools unchanged
+                if coerce_f64_to_f32 and rast_arr.dtype == np.float64:
+                    rast_arr = rast_arr.astype(np.float32)
             else:
-                rast_arr = rast.astype(float)
+                rast_arr = rast
+                # Only convert float64 to float32, leave ints/bools unchanged
+                if coerce_f64_to_f32 and rast_arr.dtype == np.float64:
+                    rast_arr = rast_arr.astype(np.float32)
     else:
         dataset = gdal.Open(str(path))
         if dataset is None:
@@ -164,7 +202,10 @@ def load_raster(
         if rb is None:
             dataset = None
             raise IndexError(f"Requested band {band} out of range in GDAL dataset")
-        rast_arr = rb.ReadAsArray().astype(float)
+        rast_arr = rb.ReadAsArray()
+        # Only convert float64 to float32, leave ints/bools unchanged
+        if coerce_f64_to_f32 and rast_arr.dtype == np.float64:
+            rast_arr = rast_arr.astype(np.float32)
         no_data_val = rb.GetNoDataValue()
         if bbox is not None:
             min_x, min_y, max_x, max_y = bbox
