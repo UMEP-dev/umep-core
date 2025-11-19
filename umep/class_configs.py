@@ -2,7 +2,7 @@ import datetime
 import logging
 import zipfile
 from dataclasses import dataclass
-from typing import Any, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 import numpy as np
 import scipy.ndimage as ndi
@@ -259,6 +259,16 @@ class EnvironData:
         # These variables lag across days until updated
         Twater = None
         CI = 1
+
+        def _scalar(value: Any) -> float:
+            """Convert sun-position outputs to native float scalars."""
+            if isinstance(value, (int, float, np.floating)):
+                return float(value)
+            arr = np.asarray(value)
+            if arr.ndim == 0:
+                return float(arr)
+            return float(arr.reshape(-1)[0])
+
         # Iterate over time steps and set vars
         for i in range(data_len):
             YMD = datetime.datetime(int(self.YYYY[i]), 1, 1) + datetime.timedelta(int(self.DOY[i]) - 1)
@@ -267,8 +277,8 @@ class EnvironData:
                 fifteen = 0.0
                 sunmaximum = -90.0
                 sunmax["zenith"] = 90.0
-                while sunmaximum <= 90.0 - sunmax["zenith"]:
-                    sunmaximum = 90.0 - sunmax["zenith"]
+                while sunmaximum <= 90.0 - _scalar(sunmax["zenith"]):
+                    sunmaximum = 90.0 - _scalar(sunmax["zenith"])
                     fifteen = fifteen + 15.0 / 1440.0
                     HM = datetime.timedelta(days=(60 * 10) / 1440.0 + fifteen)
                     YMDHM = YMD + HM
@@ -278,7 +288,7 @@ class EnvironData:
                     time["hour"] = YMDHM.hour
                     time["min"] = YMDHM.minute
                     sunmax = sp.sun_position(time, location)
-            self.altmax[i] = sunmaximum
+            self.altmax[i] = float(sunmaximum)
             # Calculate sun position
             half = datetime.timedelta(days=halftimestepdec)
             H = datetime.timedelta(hours=int(self.hours[i]))
@@ -290,13 +300,15 @@ class EnvironData:
             time["hour"] = YMDHM.hour
             time["min"] = YMDHM.minute
             sun = sp.sun_position(time, location)
-            if (sun["zenith"] > 89.0) & (
-                sun["zenith"] <= 90.0
+            sun_zenith = _scalar(sun["zenith"])
+            if (sun_zenith > 89.0) & (
+                sun_zenith <= 90.0
             ):  # Hopefully fixes weird values in Perez et al. when altitude < 1.0, i.e. close to sunrise/sunset
-                sun["zenith"] = 89.0
-            self.altitude[i] = 90.0 - sun["zenith"]
-            self.zen[i] = sun["zenith"] * (np.pi / 180.0)
-            self.azimuth[i] = sun["azimuth"]
+                sun_zenith = 89.0
+            sun_azimuth = _scalar(sun["azimuth"])
+            self.altitude[i] = 90.0 - sun_zenith
+            self.zen[i] = sun_zenith * (np.pi / 180.0)
+            self.azimuth[i] = sun_azimuth
             # day of year and check for leap year
             # if calendar.isleap(time["year"]):
             #     dayspermonth = np.atleast_2d([31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31])
@@ -436,7 +448,9 @@ class SvfData:
         # Calculate SVF alpha
         tmp = self.svf + self.svf_veg - 1.0
         tmp[tmp < 0.0] = 0.0
-        self.svfalfa = np.arcsin(np.exp(np.log(1.0 - tmp) / 2.0))
+        eps = np.finfo(np.float32).tiny
+        safe_term = np.clip(1.0 - tmp, eps, 1.0)
+        self.svfalfa = np.arcsin(np.exp(np.log(safe_term) / 2.0))
         logger.info("SVF data loaded and processed.")
 
 
@@ -450,6 +464,9 @@ def raster_preprocessing(
     amax_local_window_m: int = 100,
     amax_local_perc: float = 99.9,
 ):
+    nan32 = np.float32(np.nan)
+    zero32 = np.float32(0.0)
+    threshold = np.float32(0.1)
     # amax
     if dem is None:
         amaxvalue = float(np.nanmax(dsm) - np.nanmin(dsm))
@@ -473,6 +490,7 @@ def raster_preprocessing(
     # CDSM is relative to flat surface without DEM
     if cdsm is None:
         cdsm = np.zeros_like(dsm)
+        tdsm = np.zeros_like(dsm)
     else:
         if np.nanmax(cdsm) > 50:
             logger.warning(
@@ -501,19 +519,24 @@ def raster_preprocessing(
 
         # Set vegetated pixels to DEM + CDSM otherwise DSM + CDSM
         if dem is not None:
-            cdsm = np.where(~np.isnan(dem), dem + cdsm, np.nan)
-            cdsm = np.where(cdsm - dem < 0.1, 0, cdsm)
-            tdsm = np.where(~np.isnan(dem), dem + tdsm, np.nan)
-            tdsm = np.where(tdsm - dem < 0.1, 0, tdsm)
+            cdsm = np.where(~np.isnan(dem), dem + cdsm, nan32)
+            cdsm = np.where(cdsm - dem < threshold, zero32, cdsm)
+            tdsm = np.where(~np.isnan(dem), dem + tdsm, nan32)
+            tdsm = np.where(tdsm - dem < threshold, zero32, tdsm)
         else:
-            cdsm = np.where(~np.isnan(dsm), dsm + cdsm, np.nan)
-            cdsm = np.where(cdsm - dsm < 0.1, 0, cdsm)
-            tdsm = np.where(~np.isnan(dsm), dsm + tdsm, np.nan)
-            tdsm = np.where(tdsm - dsm < 0.1, 0, tdsm)
+            cdsm = np.where(~np.isnan(dsm), dsm + cdsm, nan32)
+            cdsm = np.where(cdsm - dsm < threshold, zero32, cdsm)
+            tdsm = np.where(~np.isnan(dsm), dsm + tdsm, nan32)
+            tdsm = np.where(tdsm - dsm < threshold, zero32, tdsm)
 
     logger.info("Calculated max height for shadows: %.2fm", amaxvalue)
     if amaxvalue > 100:
         logger.warning("Max shadow height exceeds 100m, double-check the input rasters for anomalies.")
+
+    dsm = np.asarray(dsm, dtype=np.float32)
+    dem = None if dem is None else np.asarray(dem, dtype=np.float32)
+    cdsm = np.asarray(cdsm, dtype=np.float32)
+    tdsm = np.asarray(tdsm, dtype=np.float32)
 
     return dsm, dem, cdsm, tdsm, amaxvalue
 
@@ -523,9 +546,9 @@ class RasterData:
 
     amaxvalue: float
     dsm: np.ndarray
-    crs_wkt: str
-    trf_arr: np.ndarray
-    nd_val: float
+    crs_wkt: Optional[str]
+    trf_arr: list[float]
+    nd_val: Optional[float]
     scale: float
     rows: int
     cols: int
@@ -547,14 +570,27 @@ class RasterData:
         amax_local_window_m: int = 100,
         amax_local_perc: float = 99.9,
     ):
+        if model_configs.dsm_path is None:
+            raise ValueError("DSM path must be provided before initializing raster data.")
+        if model_configs.wh_path is None or model_configs.wa_path is None:
+            raise ValueError("Wall height and aspect rasters must be provided.")
+        if model_configs.output_dir is None:
+            raise ValueError("Output directory must be configured before initializing raster data.")
+        output_dir = model_configs.output_dir
+        dsm_path = model_configs.dsm_path
+        wh_path = model_configs.wh_path
+        wa_path = model_configs.wa_path
         # Load DSM
         self.dsm, self.trf_arr, self.crs_wkt, self.nd_val = common.load_raster(
-            model_configs.dsm_path, bbox=None, coerce_f64_to_f32=True
+            dsm_path, bbox=None, coerce_f64_to_f32=True
         )
-        logger.info("DSM loaded from %s", model_configs.dsm_path)
+        logger.info("DSM loaded from %s", dsm_path)
         self.scale = 1 / self.trf_arr[1]
         self.rows = self.dsm.shape[0]
         self.cols = self.dsm.shape[1]
+        one32 = np.float32(1.0)
+        zero32 = np.float32(0.0)
+        self.dsm = np.ascontiguousarray(self.dsm, dtype=np.float32)
         # TODO: is this needed?
         # if self.dsm.min() < 0:
         #     dsmraise = np.abs(self.dsm.min())
@@ -564,9 +600,7 @@ class RasterData:
 
         # WALLS
         # heights
-        self.wallheight, wh_trf, wh_crs, _ = common.load_raster(
-            model_configs.wh_path, bbox=None, coerce_f64_to_f32=True
-        )
+        self.wallheight, wh_trf, wh_crs, _ = common.load_raster(wh_path, bbox=None, coerce_f64_to_f32=True)
         if not self.wallheight.shape == self.dsm.shape:
             raise ValueError("Mismatching raster shapes for wall heights and DSM.")
         if not np.allclose(self.trf_arr, wh_trf):
@@ -574,10 +608,9 @@ class RasterData:
         if not self.crs_wkt == wh_crs:
             raise ValueError("Mismatching CRS for wall heights and DSM.")
         logger.info("Wall heights loaded")
+        self.wallheight = np.ascontiguousarray(self.wallheight, dtype=np.float32)
         # aspects
-        self.wallaspect, wa_trf, wa_crs, _ = common.load_raster(
-            model_configs.wa_path, bbox=None, coerce_f64_to_f32=True
-        )
+        self.wallaspect, wa_trf, wa_crs, _ = common.load_raster(wa_path, bbox=None, coerce_f64_to_f32=True)
         if not self.wallaspect.shape == self.dsm.shape:
             raise ValueError("Mismatching raster shapes for wall aspects and DSM.")
         if not np.allclose(self.trf_arr, wa_trf):
@@ -585,6 +618,7 @@ class RasterData:
         if not self.crs_wkt == wa_crs:
             raise ValueError("Mismatching CRS for wall aspects and DSM.")
         logger.info("Wall aspects loaded")
+        self.wallaspect = np.ascontiguousarray(self.wallaspect, dtype=np.float32)
 
         # DEM
         # TODO: Is DEM always provided?
@@ -598,6 +632,7 @@ class RasterData:
             if not np.allclose(self.trf_arr, dem_trf):
                 raise ValueError("Mismatching spatial transform for DEM and CDSM.")
             logger.info("DEM loaded from %s", model_configs.dem_path)
+            self.dem = np.ascontiguousarray(self.dem, dtype=np.float32)
             # dem[dem == dem_nd_val] = 0.0
             # TODO: Check if this is needed re DSM ramifications
             # if dem.min() < 0:
@@ -618,6 +653,7 @@ class RasterData:
             if not np.allclose(self.trf_arr, vegdsm_trf):
                 raise ValueError("Mismatching spatial transform for DSM and CDSM.")
             logger.info("Vegetation DSM loaded from %s", model_configs.cdsm_path)
+            self.cdsm = np.ascontiguousarray(self.cdsm, dtype=np.float32)
             # Tree DSM
             if model_configs.tdsm_path:
                 self.tdsm, vegdsm2_trf, vegdsm2_crs, _ = common.load_raster(
@@ -630,6 +666,7 @@ class RasterData:
                 if not np.allclose(self.trf_arr, vegdsm2_trf):
                     raise ValueError("Mismatching spatial transform for DSM and CDSM.")
                 logger.info("Tree DSM loaded from %s", model_configs.tdsm_path)
+                self.tdsm = np.ascontiguousarray(self.tdsm, dtype=np.float32)
             else:
                 self.tdsm = None
         else:
@@ -646,20 +683,28 @@ class RasterData:
             amax_local_window_m,
             amax_local_perc,
         )
+        self.dsm = np.ascontiguousarray(self.dsm, dtype=np.float32)
+        if self.dem is not None:
+            self.dem = np.ascontiguousarray(self.dem, dtype=np.float32)
+        if self.cdsm is not None:
+            self.cdsm = np.ascontiguousarray(self.cdsm, dtype=np.float32)
+        if self.tdsm is not None:
+            self.tdsm = np.ascontiguousarray(self.tdsm, dtype=np.float32)
 
         # bushes etc
         if model_configs.use_veg_dem:
+            transmissivity = np.float32(model_params.Tree_settings.Value.Transmissivity)
             self.bush = np.logical_not(self.tdsm * self.cdsm) * self.cdsm
-            self.svfbuveg = svf_data.svf - (1.0 - svf_data.svf_veg) * (
-                1.0 - model_params.Tree_settings.Value.Transmissivity
-            )
+            self.bush = np.ascontiguousarray(self.bush, dtype=np.float32)
+            self.svfbuveg = svf_data.svf - (one32 - svf_data.svf_veg) * (one32 - transmissivity)
+            self.svfbuveg = np.ascontiguousarray(self.svfbuveg, dtype=np.float32)
         else:
             logger.info("Vegetation DEM not used; vegetation arrays set to None.")
             self.bush = np.zeros([self.rows, self.cols], dtype=np.float32)
-            self.svfbuveg = svf_data.svf
+            self.svfbuveg = np.ascontiguousarray(svf_data.svf, dtype=np.float32)
 
         common.save_raster(
-            model_configs.output_dir + "/input-dsm.tif",
+            output_dir + "/input-dsm.tif",
             self.dsm,
             self.trf_arr,
             self.crs_wkt,
@@ -667,7 +712,7 @@ class RasterData:
             coerce_f64_to_f32=True,
         )
         common.save_raster(
-            model_configs.output_dir + "/input-cdsm.tif",
+            output_dir + "/input-cdsm.tif",
             self.cdsm,
             self.trf_arr,
             self.crs_wkt,
@@ -675,7 +720,7 @@ class RasterData:
             coerce_f64_to_f32=True,
         )
         common.save_raster(
-            model_configs.output_dir + "/input-tdsm.tif",
+            output_dir + "/input-tdsm.tif",
             self.tdsm,
             self.trf_arr,
             self.crs_wkt,
@@ -683,7 +728,7 @@ class RasterData:
             coerce_f64_to_f32=True,
         )
         common.save_raster(
-            model_configs.output_dir + "/input-svfbuveg.tif",
+            output_dir + "/input-svfbuveg.tif",
             self.svfbuveg,
             self.trf_arr,
             self.crs_wkt,
@@ -691,7 +736,7 @@ class RasterData:
             coerce_f64_to_f32=True,
         )
         common.save_raster(
-            model_configs.output_dir + "/input-bush.tif",
+            output_dir + "/input-bush.tif",
             self.bush,
             self.trf_arr,
             self.crs_wkt,
@@ -701,7 +746,10 @@ class RasterData:
 
         # Land cover
         if model_configs.use_landcover:
-            lc_path_str = str(common.check_path(model_configs.lc_path))
+            lc_path = model_configs.lc_path
+            if lc_path is None:
+                raise ValueError("Land cover path must be provided when use_landcover is True.")
+            lc_path_str = str(common.check_path(lc_path))
             self.lcgrid, lc_trf, lc_crs, _ = common.load_raster(lc_path_str, bbox=None, coerce_f64_to_f32=True)
             if not self.lcgrid.shape == self.dsm.shape:
                 raise ValueError("Mismatching raster shapes for land cover and DSM.")
@@ -709,7 +757,8 @@ class RasterData:
                 raise ValueError("Mismatching CRS for land cover and DSM.")
             if not np.allclose(self.trf_arr, lc_trf):
                 raise ValueError("Mismatching spatial transform for land cover and DSM.")
-            logger.info("Land cover loaded from %s", model_configs.lc_path)
+            logger.info("Land cover loaded from %s", lc_path)
+            self.lcgrid = np.ascontiguousarray(self.lcgrid, dtype=np.float32)
         else:
             self.lcgrid = None
             logger.info("Land cover not used; lcgrid set to None.")
@@ -725,14 +774,21 @@ class RasterData:
             buildings[buildings == 4] = 1
             buildings[buildings == 3] = 1
             buildings[buildings == 2] = 0
-            self.buildings = buildings
+            self.buildings = np.ascontiguousarray(buildings, dtype=np.float32)
             logger.info("Buildings raster created from land cover data.")
         elif model_configs.use_dem_for_buildings:
-            buildings = np.where(~np.isnan(self.dem) & ~np.isnan(self.dsm), self.dsm - self.dem, 0.0)
+            if self.dem is None:
+                raise ValueError("DEM raster must be available when use_dem_for_buildings is True.")
+            height_diff = self.dsm - self.dem
+            buildings = np.where(
+                ~np.isnan(self.dem) & ~np.isnan(self.dsm),
+                height_diff,
+                zero32,
+            )
             # TODO: Check intended logic here - 1 vs 0
             buildings[buildings < 2.0] = 1.0
             buildings[buildings >= 2.0] = 0.0
-            self.buildings = buildings
+            self.buildings = np.ascontiguousarray(buildings, dtype=np.float32)
             logger.info("Buildings raster created from DSM and DEM data.")
         else:
             self.buildings = None
@@ -740,14 +796,14 @@ class RasterData:
         # Save buildings raster if requested
         if self.buildings is not None and model_configs.save_buildings:
             common.save_raster(
-                model_configs.output_dir + "/buildings.tif",
+                output_dir + "/buildings.tif",
                 self.buildings,
                 self.trf_arr,
                 self.crs_wkt,
                 self.nd_val,
                 coerce_f64_to_f32=True,
             )
-            logger.info("Buildings raster saved to %s/buildings.tif", model_configs.output_dir)
+            logger.info("Buildings raster saved to %s/buildings.tif", output_dir)
 
 
 class ShadowMatrices:
@@ -915,7 +971,7 @@ class WallsData:
     timeStep: int
     walls_scheme: np.ndarray
     dirwalls_scheme: np.ndarray
-    met_for_xarray: Optional[Tuple[Any]]
+    met_for_xarray: Optional[Any]
 
     def __init__(
         self,
