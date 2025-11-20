@@ -61,6 +61,8 @@ skyviewfactor_algorithm.generate_svf(
     dem_path=input_path_str + "/DEM.tif",
     cdsm_path=output_folder_path_str + "/CDSM.tif",
     trans_veg_perc=3,
+    use_tiled_loading=False,
+    tile_size=200,
 )
 
 # %%

@@ -180,6 +180,9 @@ def generate_svf(
                 f"Check disk space and permissions in {out_path_str}. Error: {e}"
             ) from e
 
+        trans_veg = trans_veg_perc / 100.0
+        trunk_ratio = trunk_ratio_perc / 100.0
+
         # Iterate over tiles
         for i, tile in enumerate(tile_manager.get_tiles()):
             logger.info(f"Processing tile {i + 1}/{len(tile_manager.tiles)}")
@@ -196,9 +199,6 @@ def generate_svf(
                 cdsm_tile = common.read_raster_window(cdsm_path, tile.full_slice, band=1)
 
             # Preprocess
-            trans_veg = trans_veg_perc / 100.0
-            trunk_ratio = trunk_ratio_perc / 100.0
-
             dsm_tile, dem_tile, cdsm_tile, tdsm_tile, amax = class_configs.raster_preprocessing(
                 dsm_tile,
                 dem_tile,
@@ -216,11 +216,14 @@ def generate_svf(
             ret = svf.svfForProcessing153(dsm_tile, cdsm_tile, tdsm_tile, dsm_scale, use_cdsm_bool, amax)
 
             # Write outputs (core only)
-            # Helper to write core
-            def write_core(fname, data):
-                # Extract core
-                core_data = data[tile.core_slice()]
-                common.write_raster_window(out_path_str + "/" + fname, core_data, tile.write_window)
+            # Extract core slice indices once and bind to local vars
+            core_slice = tile.core_slice()
+            write_win = tile.write_window
+            
+            # Helper to write core - bind loop vars with default args
+            def write_core(fname, data, cs=core_slice, ww=write_win):
+                core_data = data[cs]
+                common.write_raster_window(out_path_str + "/" + fname, core_data, ww)
 
             write_core("input-dsm.tif", dsm_tile)
             if dem_tile is not None:
