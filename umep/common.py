@@ -12,15 +12,19 @@ try:
     from rasterio.features import rasterize
     from rasterio.mask import mask
     from rasterio.transform import Affine, from_origin
+    from rasterio.windows import Window
     from shapely import geometry
 
     GDAL_ENV = False
     logger.info("Using rasterio for raster operations.")
 
 except:
-    from osgeo import gdal
+    try:
+        from osgeo import gdal, osr
 
-    GDAL_ENV = True
+        GDAL_ENV = True
+    except ImportError:
+        GDAL_ENV = False
     logger.info("Using GDAL for raster operations.")
 
 
@@ -77,7 +81,8 @@ def save_raster(
         trf_arr: GDAL-style geotransform [top_left_x, pixel_width, rotation, top_left_y, rotation, pixel_height]
         crs_wkt: CRS in WKT format
         no_data_val: No-data value to use
-        coerce_f64_to_f32: If True, convert float64 arrays to float32 before saving (default: True for memory efficiency)
+        coerce_f64_to_f32: If True, convert float64 arrays to float32 before saving
+                           (default: True for memory efficiency)
     """
     # Only convert float64 to float32, leave ints/bools unchanged
     if coerce_f64_to_f32 and data_arr.dtype == np.float64:
@@ -109,33 +114,102 @@ def save_raster(
                 ) as dst:
                     dst.write(data_arr, 1)
             else:
-                # Map numpy dtype to GDAL type
-                dtype_map = {
-                    np.dtype("uint8"): gdal.GDT_Byte,
-                    np.dtype("int16"): gdal.GDT_Int16,
-                    np.dtype("uint16"): gdal.GDT_UInt16,
-                    np.dtype("int32"): gdal.GDT_Int32,
-                    np.dtype("uint32"): gdal.GDT_UInt32,
-                    np.dtype("float32"): gdal.GDT_Float32,
-                    np.dtype("float64"): gdal.GDT_Float64,
-                }
-                gdal_dtype = dtype_map.get(data_arr.dtype, gdal.GDT_Float32)
                 driver = gdal.GetDriverByName("GTiff")
-                ds = driver.Create(str(out_path), width, height, 1, gdal_dtype)
-                # trf is a list: [top left x, w-e pixel size, rotation, top left y, rotation, n-s pixel size]
-                ds.SetGeoTransform(tuple(trf_arr))
-                # GetProjection returns WKT (string)
+                ds = driver.Create(str(out_path), width, height, 1, gdal.GDT_Float32)
+                ds.SetGeoTransform(trf_arr)
                 if crs_wkt:
                     ds.SetProjection(crs_wkt)
                 band = ds.GetRasterBand(1)
-                band.WriteArray(data_arr, 0, 0)
                 band.SetNoDataValue(no_data_val)
-                ds.FlushCache()
+                band.WriteArray(data_arr)
                 ds = None
+            return
         except Exception as e:
-            print(f"Error saving raster, attempts left {attempts}: {e}")
             if attempts == 0:
                 raise e
+            logger.warning(f"Failed to save raster to {out_path_str}: {e}. Retrying...")
+
+
+def get_raster_metadata(path_str: str | Path) -> dict:
+    """
+    Get raster metadata without loading the whole file.
+    Returns dict with keys: rows, cols, transform, crs, nodata, res.
+    """
+    path = check_path(path_str)
+    if GDAL_ENV is False:
+        with rasterio.open(path) as src:
+            return {
+                "rows": src.height,
+                "cols": src.width,
+                "transform": src.transform,  # Affine object
+                "crs": src.crs,
+                "nodata": src.nodata,
+                "res": src.res,  # (xres, yres)
+                "bounds": src.bounds,
+            }
+    else:
+        ds = gdal.Open(str(path))
+        if ds is None:
+            raise OSError(f"Could not open {path}")
+        gt = ds.GetGeoTransform()
+        # GDAL GT: (c, a, b, f, d, e)
+        # rasterio Affine: (a, b, c, d, e, f)
+        # We'll return the raw GDAL transform here, caller needs to handle difference if mixing
+        return {
+            "rows": ds.RasterYSize,
+            "cols": ds.RasterXSize,
+            "transform": gt,
+            "crs": ds.GetProjection(),
+            "nodata": ds.GetRasterBand(1).GetNoDataValue(),
+            "res": (gt[1], abs(gt[5])),  # Approximate resolution
+        }
+
+
+def read_raster_window(path_str: str | Path, window: tuple[slice, slice], band: int = 1) -> np.ndarray:
+    """
+    Read a window from a raster file.
+    window is (row_slice, col_slice).
+    """
+    path = check_path(path_str)
+    row_slice, col_slice = window
+
+    # Handle None slices (read full dimension)
+    # This is tricky without knowing full shape, so we assume caller provides valid slices
+    # or we'd need to open file to check shape first.
+    # For now, assume valid integer slices.
+
+    if GDAL_ENV is False:
+        with rasterio.open(path) as src:
+            # rasterio Window(col_off, row_off, width, height)
+            # Slices are start:stop
+            r_start = row_slice.start if row_slice.start is not None else 0
+            r_stop = row_slice.stop if row_slice.stop is not None else src.height
+            c_start = col_slice.start if col_slice.start is not None else 0
+            c_stop = col_slice.stop if col_slice.stop is not None else src.width
+
+            win = Window(
+                col_off=c_start,
+                row_off=r_start,
+                width=c_stop - c_start,
+                height=r_stop - r_start,
+            )
+            return src.read(band, window=win)
+    else:
+        ds = gdal.Open(str(path))
+        if ds is None:
+            raise OSError(f"Could not open {path}")
+
+        r_start = row_slice.start if row_slice.start is not None else 0
+        r_stop = row_slice.stop if row_slice.stop is not None else ds.RasterYSize
+        c_start = col_slice.start if col_slice.start is not None else 0
+        c_stop = col_slice.stop if col_slice.stop is not None else ds.RasterXSize
+
+        xoff = c_start
+        yoff = r_start
+        xsize = c_stop - c_start
+        ysize = r_stop - r_start
+
+        return ds.GetRasterBand(band).ReadAsArray(xoff, yoff, xsize, ysize)
 
 
 def load_raster(
@@ -263,3 +337,94 @@ def xy_to_lnglat(crs_wkt: str | None, x, y):
     except Exception:
         logger.exception("Failed to transform coordinates")
         raise
+
+
+def create_empty_raster(
+    path_str: str | Path,
+    rows: int,
+    cols: int,
+    transform: list[float],
+    crs_wkt: str,
+    dtype=np.float32,
+    nodata: float = -9999,
+    bands: int = 1,
+):
+    """
+    Create an empty GeoTIFF file initialized with nodata.
+    """
+    path = check_path(path_str, make_dir=True)
+
+    if GDAL_ENV is False:
+        trf = Affine.from_gdal(*transform)
+        crs = None
+        if crs_wkt:
+            crs = pyproj.CRS(crs_wkt)
+
+        with rasterio.open(
+            path,
+            "w",
+            driver="GTiff",
+            height=rows,
+            width=cols,
+            count=bands,
+            dtype=dtype,
+            crs=crs,
+            transform=trf,
+            nodata=nodata,
+        ) as dst:
+            pass  # Just create
+    else:
+        driver = gdal.GetDriverByName("GTiff")
+        # Map numpy dtype to GDAL type
+        gdal_type = gdal.GDT_Float32  # Default
+        if dtype == np.float64:
+            gdal_type = gdal.GDT_Float64
+        elif dtype == np.int32:
+            gdal_type = gdal.GDT_Int32
+        elif dtype == np.int16:
+            gdal_type = gdal.GDT_Int16
+        elif dtype == np.uint8:
+            gdal_type = gdal.GDT_Byte
+
+        ds = driver.Create(str(path), cols, rows, bands, gdal_type)
+        ds.SetGeoTransform(transform)
+        if crs_wkt:
+            ds.SetProjection(crs_wkt)
+        for b in range(1, bands + 1):
+            band = ds.GetRasterBand(b)
+            band.SetNoDataValue(nodata)
+            band.Fill(nodata)
+        ds = None
+
+
+def write_raster_window(path_str: str | Path, data: np.ndarray, window: tuple[slice, slice], band: int = 1):
+    """
+    Write a data array to a specific window in an existing raster.
+    window is (row_slice, col_slice).
+    """
+    path = check_path(path_str)
+    row_slice, col_slice = window
+
+    if GDAL_ENV is False:
+        from rasterio.windows import Window
+
+        with rasterio.open(path, "r+") as dst:
+            win = Window(
+                col_off=col_slice.start,
+                row_off=row_slice.start,
+                width=col_slice.stop - col_slice.start,
+                height=row_slice.stop - row_slice.start,
+            )
+            dst.write(data, band, window=win)
+    else:
+        ds = gdal.Open(str(path), gdal.GA_Update)
+        if ds is None:
+            raise OSError(f"Could not open {path} for update")
+
+        xoff = col_slice.start
+        yoff = row_slice.start
+        xsize = col_slice.stop - col_slice.start
+        ysize = row_slice.stop - row_slice.start
+
+        ds.GetRasterBand(band).WriteArray(data, xoff, yoff)
+        ds = None

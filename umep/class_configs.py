@@ -19,6 +19,7 @@ except ImportError:
 from . import common
 from .functions import wallalgorithms as wa
 from .functions.SOLWEIGpython.wall_surface_temperature import load_walls
+from .tile_manager import TileManager, TileSpec
 from .util.SEBESOLWEIGCommonFiles import sun_position as sp
 
 logger = logging.getLogger(__name__)
@@ -74,14 +75,19 @@ class SolweigConfig:
     plot_poi_patches: bool = False
 
     def to_file(self, file_path: str):
-        """Save configuration to a file."""
+        """
+        Save configuration to a file.
+
+        Note: use_tiled_loading enables memory-efficient processing of large datasets
+        by loading tiles on-demand with overlaps calculated from amaxvalue and pixel size.
+        """
         logger.info("Saving configuration to %s", file_path)
         with open(file_path, "w") as f:
             for key in type(self).__annotations__:
                 value = getattr(self, key)
                 if value is None:
                     value = ""  # Default to empty string if None
-                if type(self).__annotations__[key] == bool:
+                if type(self).__annotations__[key] == bool or type(self).__annotations__[key] == int:
                     f.write(f"{key}={int(value)}\n")
                 else:
                     f.write(f"{key}={value}\n")
@@ -399,41 +405,48 @@ class SvfData:
     svf_veg_blocks_bldg_sh_north: np.ndarray
     svfalfa: np.ndarray
 
-    def __init__(self, model_configs: SolweigConfig):
-        logger.info("Loading SVF data from %s", model_configs.svf_path)
+    def __init__(self, model_configs: SolweigConfig, tile_spec: Optional[TileSpec] = None):
+        if not tile_spec:
+            logger.info("Loading SVF data from %s", model_configs.svf_path)
         svf_path_str = str(common.check_path(model_configs.svf_path, make_dir=False))
         in_path_str = str(common.check_path(model_configs.working_dir, make_dir=False))
-        # Unzip
+
+        # Always unzip SVF files to ensure they exist for both tiled and non-tiled execution
         with zipfile.ZipFile(svf_path_str, "r") as zip_ref:
             zip_ref.extractall(in_path_str)
+
+        # Helper to load raster or window
+        def load(filename):
+            path = in_path_str + "/" + filename
+            if tile_spec:
+                data = common.read_raster_window(path, tile_spec.full_slice, band=1)
+                if data.dtype == np.float64:
+                    data = data.astype(np.float32)
+                return data
+            else:
+                data, _, _, _ = common.load_raster(path, coerce_f64_to_f32=True)
+                return data
+
         # Load SVF rasters
-        self.svf, _, _, _ = common.load_raster(in_path_str + "/" + "svf.tif", coerce_f64_to_f32=True)
-        self.svf_east, _, _, _ = common.load_raster(in_path_str + "/" + "svfE.tif", coerce_f64_to_f32=True)
-        self.svf_south, _, _, _ = common.load_raster(in_path_str + "/" + "svfS.tif", coerce_f64_to_f32=True)
-        self.svf_west, _, _, _ = common.load_raster(in_path_str + "/" + "svfW.tif", coerce_f64_to_f32=True)
-        self.svf_north, _, _, _ = common.load_raster(in_path_str + "/" + "svfN.tif", coerce_f64_to_f32=True)
+        self.svf = load("svf.tif")
+        self.svf_east = load("svfE.tif")
+        self.svf_south = load("svfS.tif")
+        self.svf_west = load("svfW.tif")
+        self.svf_north = load("svfN.tif")
+
         if model_configs.use_veg_dem:
-            self.svf_veg, _, _, _ = common.load_raster(in_path_str + "/" + "svfveg.tif", coerce_f64_to_f32=True)
-            self.svf_veg_east, _, _, _ = common.load_raster(in_path_str + "/" + "svfEveg.tif", coerce_f64_to_f32=True)
-            self.svf_veg_south, _, _, _ = common.load_raster(in_path_str + "/" + "svfSveg.tif", coerce_f64_to_f32=True)
-            self.svf_veg_west, _, _, _ = common.load_raster(in_path_str + "/" + "svfWveg.tif", coerce_f64_to_f32=True)
-            self.svf_veg_north, _, _, _ = common.load_raster(in_path_str + "/" + "svfNveg.tif", coerce_f64_to_f32=True)
-            self.svf_veg_blocks_bldg_sh, _, _, _ = common.load_raster(
-                in_path_str + "/" + "svfaveg.tif", coerce_f64_to_f32=True
-            )
-            self.svf_veg_blocks_bldg_sh_east, _, _, _ = common.load_raster(
-                in_path_str + "/" + "svfEaveg.tif", coerce_f64_to_f32=True
-            )
-            self.svf_veg_blocks_bldg_sh_south, _, _, _ = common.load_raster(
-                in_path_str + "/" + "svfSaveg.tif", coerce_f64_to_f32=True
-            )
-            self.svf_veg_blocks_bldg_sh_west, _, _, _ = common.load_raster(
-                in_path_str + "/" + "svfWaveg.tif", coerce_f64_to_f32=True
-            )
-            self.svf_veg_blocks_bldg_sh_north, _, _, _ = common.load_raster(
-                in_path_str + "/" + "svfNaveg.tif", coerce_f64_to_f32=True
-            )
-            logger.info("Vegetation SVF data loaded.")
+            self.svf_veg = load("svfveg.tif")
+            self.svf_veg_east = load("svfEveg.tif")
+            self.svf_veg_south = load("svfSveg.tif")
+            self.svf_veg_west = load("svfWveg.tif")
+            self.svf_veg_north = load("svfNveg.tif")
+            self.svf_veg_blocks_bldg_sh = load("svfaveg.tif")
+            self.svf_veg_blocks_bldg_sh_east = load("svfEaveg.tif")
+            self.svf_veg_blocks_bldg_sh_south = load("svfSaveg.tif")
+            self.svf_veg_blocks_bldg_sh_west = load("svfWaveg.tif")
+            self.svf_veg_blocks_bldg_sh_north = load("svfNaveg.tif")
+            if not tile_spec:
+                logger.info("Vegetation SVF data loaded.")
         else:
             self.svf_veg = np.ones_like(self.svf)
             self.svf_veg_east = np.ones_like(self.svf)
@@ -445,24 +458,27 @@ class SvfData:
             self.svf_veg_blocks_bldg_sh_south = np.ones_like(self.svf)
             self.svf_veg_blocks_bldg_sh_west = np.ones_like(self.svf)
             self.svf_veg_blocks_bldg_sh_north = np.ones_like(self.svf)
+
         # Calculate SVF alpha
         tmp = self.svf + self.svf_veg - 1.0
         tmp[tmp < 0.0] = 0.0
         eps = np.finfo(np.float32).tiny
         safe_term = np.clip(1.0 - tmp, eps, 1.0)
         self.svfalfa = np.arcsin(np.exp(np.log(safe_term) / 2.0))
-        logger.info("SVF data loaded and processed.")
+        if not tile_spec:
+            logger.info("SVF data loaded and processed.")
 
 
 def raster_preprocessing(
     dsm: np.ndarray,
-    dem: np.ndarray | None,
-    cdsm: np.ndarray | None,
-    tdsm: np.ndarray | None,
+    dem: Optional[np.ndarray],
+    cdsm: Optional[np.ndarray],
+    tdsm: Optional[np.ndarray],
     trunk_ratio: float,
     pix_size: float,
     amax_local_window_m: int = 100,
     amax_local_perc: float = 99.9,
+    quiet: bool = False,
 ):
     nan32 = np.float32(np.nan)
     zero32 = np.float32(0.0)
@@ -479,9 +495,10 @@ def raster_preprocessing(
             local_min = ndi.minimum_filter(dsm, size=window, mode="nearest")
             local_range = dsm - local_min
             amaxvalue = float(np.nanpercentile(local_range, amax_local_perc))
-            logger.info(
-                f"amax {amaxvalue}m derived from {amax_local_window_m}m window and {amax_local_perc}th percentile."
-            )
+            if not quiet:
+                logger.info(
+                    f"amax {amaxvalue}m derived from {amax_local_window_m}m window and {amax_local_perc}th percentile."
+                )
         except Exception:
             # Fallback to global range if filtering fails for any reason
             amaxvalue = float(np.nanmax(dsm) - np.nanmin(dsm))
@@ -499,7 +516,8 @@ def raster_preprocessing(
         cdsm[np.isnan(cdsm)] = 0.0
         # TDSM is relative to flat surface without DEM
         if tdsm is None:
-            logger.info("Tree trunk TDSM not provided; using trunk ratio for TDSM.")
+            if not quiet:
+                logger.info("Tree trunk TDSM not provided; using trunk ratio for TDSM.")
             tdsm = cdsm * trunk_ratio
         if np.nanmax(tdsm) > 50:
             logger.warning(
@@ -514,7 +532,8 @@ def raster_preprocessing(
         vegmax = np.nanmax(cdsm) - np.nanmin(cdsm)
         vegmax = min(vegmax, 50)
         if vegmax > amaxvalue:
-            logger.warning(f"Overriding amax {amaxvalue}m with veg max height of {vegmax}m.")
+            if not quiet:
+                logger.warning(f"Overriding amax {amaxvalue}m with veg max height of {vegmax}m.")
             amaxvalue = vegmax
 
         # Set vegetated pixels to DEM + CDSM otherwise DSM + CDSM
@@ -529,9 +548,11 @@ def raster_preprocessing(
             tdsm = np.where(~np.isnan(dsm), dsm + tdsm, nan32)
             tdsm = np.where(tdsm - dsm < threshold, zero32, tdsm)
 
-    logger.info("Calculated max height for shadows: %.2fm", amaxvalue)
+    if not quiet:
+        logger.info("Calculated max height for shadows: %.2fm", amaxvalue)
     if amaxvalue > 100:
-        logger.warning("Max shadow height exceeds 100m, double-check the input rasters for anomalies.")
+        if not quiet:
+            logger.warning("Max shadow height exceeds 100m, double-check the input rasters for anomalies.")
 
     dsm = np.asarray(dsm, dtype=np.float32)
     dem = None if dem is None else np.asarray(dem, dtype=np.float32)
@@ -569,6 +590,7 @@ class RasterData:
         svf_data: SvfData,
         amax_local_window_m: int = 100,
         amax_local_perc: float = 99.9,
+        tile_spec: Optional[TileSpec] = None,
     ):
         if model_configs.dsm_path is None:
             raise ValueError("DSM path must be provided before initializing raster data.")
@@ -580,16 +602,44 @@ class RasterData:
         dsm_path = model_configs.dsm_path
         wh_path = model_configs.wh_path
         wa_path = model_configs.wa_path
+
+        # Helper to load raster or window
+        def load(path, band=1):
+            if tile_spec:
+                data = common.read_raster_window(path, tile_spec.full_slice, band=band)
+                if data.dtype == np.float64:
+                    data = data.astype(np.float32)
+                return data
+            else:
+                data, _, _, _ = common.load_raster(path, bbox=None, coerce_f64_to_f32=True)
+                return data
+
         # Load DSM
-        self.dsm, self.trf_arr, self.crs_wkt, self.nd_val = common.load_raster(
-            dsm_path, bbox=None, coerce_f64_to_f32=True
-        )
-        logger.info("DSM loaded from %s", dsm_path)
+        if tile_spec:
+            self.dsm = load(dsm_path)
+            meta = common.get_raster_metadata(dsm_path)
+            if "res" in meta:
+                # Convert Rasterio Affine to GDAL transform
+                # Affine: (a, b, c, d, e, f) -> GDAL: (c, a, b, f, d, e)
+                t = meta["transform"]
+                self.trf_arr = [t.c, t.a, t.b, t.f, t.d, t.e]
+            else:
+                self.trf_arr = meta["transform"]
+            self.crs_wkt = meta["crs"]
+            self.nd_val = meta["nodata"]
+        else:
+            self.dsm, self.trf_arr, self.crs_wkt, self.nd_val = common.load_raster(
+                dsm_path, bbox=None, coerce_f64_to_f32=True
+            )
+
+        if not tile_spec:
+            logger.info("DSM loaded from %s", dsm_path)
         self.scale = 1 / self.trf_arr[1]
         self.rows = self.dsm.shape[0]
         self.cols = self.dsm.shape[1]
         one32 = np.float32(1.0)
         zero32 = np.float32(0.0)
+
         self.dsm = np.ascontiguousarray(self.dsm, dtype=np.float32)
         # TODO: is this needed?
         # if self.dsm.min() < 0:
@@ -600,38 +650,55 @@ class RasterData:
 
         # WALLS
         # heights
-        self.wallheight, wh_trf, wh_crs, _ = common.load_raster(wh_path, bbox=None, coerce_f64_to_f32=True)
-        if not self.wallheight.shape == self.dsm.shape:
-            raise ValueError("Mismatching raster shapes for wall heights and DSM.")
-        if not np.allclose(self.trf_arr, wh_trf):
-            raise ValueError("Mismatching spatial transform for wall heights and DSM.")
-        if not self.crs_wkt == wh_crs:
-            raise ValueError("Mismatching CRS for wall heights and DSM.")
-        logger.info("Wall heights loaded")
+        if tile_spec:
+            self.wallheight = load(wh_path)
+        else:
+            self.wallheight, wh_trf, wh_crs, _ = common.load_raster(wh_path, bbox=None, coerce_f64_to_f32=True)
+            if not self.wallheight.shape == self.dsm.shape:
+                raise ValueError("Mismatching raster shapes for wall heights and DSM.")
+            if not np.allclose(self.trf_arr, wh_trf):
+                raise ValueError("Mismatching spatial transform for wall heights and DSM.")
+            if not self.crs_wkt == wh_crs:
+                raise ValueError("Mismatching CRS for wall heights and DSM.")
+
+        if not tile_spec:
+            logger.info("Wall heights loaded")
         self.wallheight = np.ascontiguousarray(self.wallheight, dtype=np.float32)
         # aspects
-        self.wallaspect, wa_trf, wa_crs, _ = common.load_raster(wa_path, bbox=None, coerce_f64_to_f32=True)
-        if not self.wallaspect.shape == self.dsm.shape:
-            raise ValueError("Mismatching raster shapes for wall aspects and DSM.")
-        if not np.allclose(self.trf_arr, wa_trf):
-            raise ValueError("Mismatching spatial transform for wall aspects and DSM.")
-        if not self.crs_wkt == wa_crs:
-            raise ValueError("Mismatching CRS for wall aspects and DSM.")
-        logger.info("Wall aspects loaded")
+        if tile_spec:
+            self.wallaspect = load(wa_path)
+        else:
+            self.wallaspect, wa_trf, wa_crs, _ = common.load_raster(wa_path, bbox=None, coerce_f64_to_f32=True)
+            if not self.wallaspect.shape == self.dsm.shape:
+                raise ValueError("Mismatching raster shapes for wall aspects and DSM.")
+            if not np.allclose(self.trf_arr, wa_trf):
+                raise ValueError("Mismatching spatial transform for wall aspects and DSM.")
+            if not self.crs_wkt == wa_crs:
+                raise ValueError("Mismatching CRS for wall aspects and DSM.")
+
+        if not tile_spec:
+            logger.info("Wall aspects loaded")
         self.wallaspect = np.ascontiguousarray(self.wallaspect, dtype=np.float32)
 
         # DEM
         # TODO: Is DEM always provided?
         if model_configs.dem_path:
             dem_path_str = str(common.check_path(model_configs.dem_path))
-            self.dem, dem_trf, dem_crs, dem_nd_val = common.load_raster(dem_path_str, bbox=None, coerce_f64_to_f32=True)
-            if not self.dem.shape == self.dsm.shape:
-                raise ValueError("Mismatching raster shapes for DEM and CDSM.")
-            if dem_crs is not None and dem_crs != self.crs_wkt:
-                raise ValueError("Mismatching CRS for DEM and CDSM.")
-            if not np.allclose(self.trf_arr, dem_trf):
-                raise ValueError("Mismatching spatial transform for DEM and CDSM.")
-            logger.info("DEM loaded from %s", model_configs.dem_path)
+            if tile_spec:
+                self.dem = load(dem_path_str)
+            else:
+                self.dem, dem_trf, dem_crs, dem_nd_val = common.load_raster(
+                    dem_path_str, bbox=None, coerce_f64_to_f32=True
+                )
+                if not self.dem.shape == self.dsm.shape:
+                    raise ValueError("Mismatching raster shapes for DEM and CDSM.")
+                if dem_crs is not None and dem_crs != self.crs_wkt:
+                    raise ValueError("Mismatching CRS for DEM and CDSM.")
+                if not np.allclose(self.trf_arr, dem_trf):
+                    raise ValueError("Mismatching spatial transform for DEM and CDSM.")
+
+            if not tile_spec:
+                logger.info("DEM loaded from %s", model_configs.dem_path)
             self.dem = np.ascontiguousarray(self.dem, dtype=np.float32)
             # dem[dem == dem_nd_val] = 0.0
             # TODO: Check if this is needed re DSM ramifications
@@ -643,29 +710,39 @@ class RasterData:
 
         # Vegetation
         if model_configs.use_veg_dem:
-            self.cdsm, vegdsm_trf, vegdsm_crs, _ = common.load_raster(
-                model_configs.cdsm_path, bbox=None, coerce_f64_to_f32=True
-            )
-            if not self.cdsm.shape == self.dsm.shape:
-                raise ValueError("Mismatching raster shapes for DSM and CDSM.")
-            if vegdsm_crs is not None and vegdsm_crs != self.crs_wkt:
-                raise ValueError("Mismatching CRS for DSM and CDSM.")
-            if not np.allclose(self.trf_arr, vegdsm_trf):
-                raise ValueError("Mismatching spatial transform for DSM and CDSM.")
-            logger.info("Vegetation DSM loaded from %s", model_configs.cdsm_path)
+            if tile_spec:
+                self.cdsm = load(model_configs.cdsm_path)
+            else:
+                self.cdsm, vegdsm_trf, vegdsm_crs, _ = common.load_raster(
+                    model_configs.cdsm_path, bbox=None, coerce_f64_to_f32=True
+                )
+                if not self.cdsm.shape == self.dsm.shape:
+                    raise ValueError("Mismatching raster shapes for DSM and CDSM.")
+                if vegdsm_crs is not None and vegdsm_crs != self.crs_wkt:
+                    raise ValueError("Mismatching CRS for DSM and CDSM.")
+                if not np.allclose(self.trf_arr, vegdsm_trf):
+                    raise ValueError("Mismatching spatial transform for DSM and CDSM.")
+
+            if not tile_spec:
+                logger.info("Vegetation DSM loaded from %s", model_configs.cdsm_path)
             self.cdsm = np.ascontiguousarray(self.cdsm, dtype=np.float32)
             # Tree DSM
             if model_configs.tdsm_path:
-                self.tdsm, vegdsm2_trf, vegdsm2_crs, _ = common.load_raster(
-                    model_configs.tdsm_path, bbox=None, coerce_f64_to_f32=True
-                )
-                if not self.tdsm.shape == self.dsm.shape:
-                    raise ValueError("Mismatching raster shapes for DSM and CDSM.")
-                if vegdsm2_crs is not None and vegdsm2_crs != self.crs_wkt:
-                    raise ValueError("Mismatching CRS for DSM and CDSM.")
-                if not np.allclose(self.trf_arr, vegdsm2_trf):
-                    raise ValueError("Mismatching spatial transform for DSM and CDSM.")
-                logger.info("Tree DSM loaded from %s", model_configs.tdsm_path)
+                if tile_spec:
+                    self.tdsm = load(model_configs.tdsm_path)
+                else:
+                    self.tdsm, vegdsm2_trf, vegdsm2_crs, _ = common.load_raster(
+                        model_configs.tdsm_path, bbox=None, coerce_f64_to_f32=True
+                    )
+                    if not self.tdsm.shape == self.dsm.shape:
+                        raise ValueError("Mismatching raster shapes for DSM and CDSM.")
+                    if vegdsm2_crs is not None and vegdsm2_crs != self.crs_wkt:
+                        raise ValueError("Mismatching CRS for DSM and CDSM.")
+                    if not np.allclose(self.trf_arr, vegdsm2_trf):
+                        raise ValueError("Mismatching spatial transform for DSM and CDSM.")
+
+                if not tile_spec:
+                    logger.info("Tree DSM loaded from %s", model_configs.tdsm_path)
                 self.tdsm = np.ascontiguousarray(self.tdsm, dtype=np.float32)
             else:
                 self.tdsm = None
@@ -682,7 +759,14 @@ class RasterData:
             self.trf_arr[1],
             amax_local_window_m,
             amax_local_perc,
+            quiet=bool(tile_spec),
         )
+
+        # Clamp amaxvalue for tiled processing
+        if tile_spec and self.amaxvalue > 150.0:
+            logger.info(f"Clamping amaxvalue {self.amaxvalue} to 150m for tiled processing.")
+            self.amaxvalue = 150.0
+
         self.dsm = np.ascontiguousarray(self.dsm, dtype=np.float32)
         if self.dem is not None:
             self.dem = np.ascontiguousarray(self.dem, dtype=np.float32)
@@ -699,50 +783,52 @@ class RasterData:
             self.svfbuveg = svf_data.svf - (one32 - svf_data.svf_veg) * (one32 - transmissivity)
             self.svfbuveg = np.ascontiguousarray(self.svfbuveg, dtype=np.float32)
         else:
-            logger.info("Vegetation DEM not used; vegetation arrays set to None.")
+            if not tile_spec:
+                logger.info("Vegetation DEM not used; vegetation arrays set to None.")
             self.bush = np.zeros([self.rows, self.cols], dtype=np.float32)
             self.svfbuveg = np.ascontiguousarray(svf_data.svf, dtype=np.float32)
 
-        common.save_raster(
-            output_dir + "/input-dsm.tif",
-            self.dsm,
-            self.trf_arr,
-            self.crs_wkt,
-            self.nd_val,
-            coerce_f64_to_f32=True,
-        )
-        common.save_raster(
-            output_dir + "/input-cdsm.tif",
-            self.cdsm,
-            self.trf_arr,
-            self.crs_wkt,
-            self.nd_val,
-            coerce_f64_to_f32=True,
-        )
-        common.save_raster(
-            output_dir + "/input-tdsm.tif",
-            self.tdsm,
-            self.trf_arr,
-            self.crs_wkt,
-            self.nd_val,
-            coerce_f64_to_f32=True,
-        )
-        common.save_raster(
-            output_dir + "/input-svfbuveg.tif",
-            self.svfbuveg,
-            self.trf_arr,
-            self.crs_wkt,
-            self.nd_val,
-            coerce_f64_to_f32=True,
-        )
-        common.save_raster(
-            output_dir + "/input-bush.tif",
-            self.bush,
-            self.trf_arr,
-            self.crs_wkt,
-            self.nd_val,
-            coerce_f64_to_f32=True,
-        )
+        if not tile_spec:
+            common.save_raster(
+                output_dir + "/input-dsm.tif",
+                self.dsm,
+                self.trf_arr,
+                self.crs_wkt,
+                self.nd_val,
+                coerce_f64_to_f32=True,
+            )
+            common.save_raster(
+                output_dir + "/input-cdsm.tif",
+                self.cdsm,
+                self.trf_arr,
+                self.crs_wkt,
+                self.nd_val,
+                coerce_f64_to_f32=True,
+            )
+            common.save_raster(
+                output_dir + "/input-tdsm.tif",
+                self.tdsm,
+                self.trf_arr,
+                self.crs_wkt,
+                self.nd_val,
+                coerce_f64_to_f32=True,
+            )
+            common.save_raster(
+                output_dir + "/input-svfbuveg.tif",
+                self.svfbuveg,
+                self.trf_arr,
+                self.crs_wkt,
+                self.nd_val,
+                coerce_f64_to_f32=True,
+            )
+            common.save_raster(
+                output_dir + "/input-bush.tif",
+                self.bush,
+                self.trf_arr,
+                self.crs_wkt,
+                self.nd_val,
+                coerce_f64_to_f32=True,
+            )
 
         # Land cover
         if model_configs.use_landcover:
@@ -750,18 +836,24 @@ class RasterData:
             if lc_path is None:
                 raise ValueError("Land cover path must be provided when use_landcover is True.")
             lc_path_str = str(common.check_path(lc_path))
-            self.lcgrid, lc_trf, lc_crs, _ = common.load_raster(lc_path_str, bbox=None, coerce_f64_to_f32=True)
-            if not self.lcgrid.shape == self.dsm.shape:
-                raise ValueError("Mismatching raster shapes for land cover and DSM.")
-            if lc_crs is not None and lc_crs != self.crs_wkt:
-                raise ValueError("Mismatching CRS for land cover and DSM.")
-            if not np.allclose(self.trf_arr, lc_trf):
-                raise ValueError("Mismatching spatial transform for land cover and DSM.")
-            logger.info("Land cover loaded from %s", lc_path)
+            if tile_spec:
+                self.lcgrid = load(lc_path_str)
+            else:
+                self.lcgrid, lc_trf, lc_crs, _ = common.load_raster(lc_path_str, bbox=None, coerce_f64_to_f32=True)
+                if not self.lcgrid.shape == self.dsm.shape:
+                    raise ValueError("Mismatching raster shapes for land cover and DSM.")
+                if lc_crs is not None and lc_crs != self.crs_wkt:
+                    raise ValueError("Mismatching CRS for land cover and DSM.")
+                if not np.allclose(self.trf_arr, lc_trf):
+                    raise ValueError("Mismatching spatial transform for land cover and DSM.")
+
+            if not tile_spec:
+                logger.info("Land cover loaded from %s", lc_path)
             self.lcgrid = np.ascontiguousarray(self.lcgrid, dtype=np.float32)
         else:
             self.lcgrid = None
-            logger.info("Land cover not used; lcgrid set to None.")
+            if not tile_spec:
+                logger.info("Land cover not used; lcgrid set to None.")
 
         # Buildings from land cover option
         # TODO: Check intended logic here
@@ -775,7 +867,8 @@ class RasterData:
             buildings[buildings == 3] = 1
             buildings[buildings == 2] = 0
             self.buildings = np.ascontiguousarray(buildings, dtype=np.float32)
-            logger.info("Buildings raster created from land cover data.")
+            if not tile_spec:
+                logger.info("Buildings raster created from land cover data.")
         elif model_configs.use_dem_for_buildings:
             if self.dem is None:
                 raise ValueError("DEM raster must be available when use_dem_for_buildings is True.")
@@ -789,10 +882,12 @@ class RasterData:
             buildings[buildings < 2.0] = 1.0
             buildings[buildings >= 2.0] = 0.0
             self.buildings = np.ascontiguousarray(buildings, dtype=np.float32)
-            logger.info("Buildings raster created from DSM and DEM data.")
+            if not tile_spec:
+                logger.info("Buildings raster created from DSM and DEM data.")
         else:
             self.buildings = None
-            logger.info("Buildings raster not created.")
+            if not tile_spec:
+                logger.info("Buildings raster not created.")
         # Save buildings raster if requested
         if self.buildings is not None and model_configs.save_buildings:
             common.save_raster(
@@ -803,7 +898,8 @@ class RasterData:
                 self.nd_val,
                 coerce_f64_to_f32=True,
             )
-            logger.info("Buildings raster saved to %s/buildings.tif", output_dir)
+            if not tile_spec:
+                logger.info("Buildings raster saved to %s/buildings.tif", output_dir)
 
 
 class ShadowMatrices:
@@ -823,31 +919,41 @@ class ShadowMatrices:
         model_configs: SolweigConfig,
         model_params,
         svf_data: SvfData,
+        tile_spec: Optional[TileSpec] = None,
     ):
         self.use_aniso = model_configs.use_aniso
         if self.use_aniso:
-            logger.info("Loading anisotropic shadow matrices from %s", model_configs.aniso_path)
+            if not tile_spec:
+                logger.info("Loading anisotropic shadow matrices from %s", model_configs.aniso_path)
             aniso_path_str = str(common.check_path(model_configs.aniso_path, make_dir=False))
+
+            # Load data. If tiled, we try to slice to save memory.
+            # Note: np.load on .npz reads the whole array into memory when accessed.
+            # Ideally these should be .npy or memory-mapped if they are huge.
             data = np.load(aniso_path_str)
-            self.shmat = data["shadowmat"].astype(np.float32)
-            self.vegshmat = data["vegshadowmat"].astype(np.float32)
-            self.vbshvegshmat = data["vbshmat"].astype(np.float32)
+
+            def load_slice(key):
+                if tile_spec:
+                    row_slice, col_slice = tile_spec.full_slice
+                    return data[key][row_slice, col_slice, :].astype(np.float32)
+                else:
+                    return data[key].astype(np.float32)
+
+            self.shmat = load_slice("shadowmat")
+            self.vegshmat = load_slice("vegshadowmat")
+            self.vbshvegshmat = load_slice("vbshmat")
+
             if model_configs.use_veg_dem:
                 # TODO: thoughts on memory optimization for smaller machines / large arrays?
                 self.diffsh = (
                     self.shmat - (1 - self.vegshmat) * (1 - model_params.Tree_settings.Value.Transmissivity)
                 ).astype(np.float32)
-                """
-                self.diffsh = np.zeros((raster_data.rows, raster_data.cols, self.shmat.shape[2]))
-                for i in range(0, self.shmat.shape[2]):
-                    self.diffsh[:, :, i] = self.shmat[:, :, i] - (1 - self.vegshmat[:, :, i]) * (
-                        1 - model_params.Tree_settings.Value.Transmissivity
-                    )
-                """
-                logger.info("Shadow matrices with vegetation loaded.")
+                if not tile_spec:
+                    logger.info("Shadow matrices with vegetation loaded.")
             else:
                 self.diffsh = self.shmat
-                logger.info("Shadow matrices loaded (no vegetation).")
+                if not tile_spec:
+                    logger.info("Shadow matrices loaded (no vegetation).")
 
             # Estimate number of patches based on shadow matrices
             if self.shmat.shape[2] == 145:
@@ -875,7 +981,8 @@ class ShadowMatrices:
             self.asvf = None
             self.patch_option = 0
             self.steradians = 0
-            logger.info("Anisotropic sky not used; shadow matrices not loaded.")
+            if not tile_spec:
+                logger.info("Anisotropic sky not used; shadow matrices not loaded.")
 
 
 class TgMaps:
@@ -900,7 +1007,7 @@ class TgMaps:
     Tgmap1N: np.ndarray
     TgOut1: np.ndarray
 
-    def __init__(self, use_landcover: bool, model_params, raster_data: RasterData):
+    def __init__(self, use_landcover: bool, model_params, raster_data: RasterData, quiet: bool = False):
         """
         This is a vectorized version that avoids looping over pixels.
         """
@@ -923,7 +1030,8 @@ class TgMaps:
             self.TgK_wall = model_params.Ts_deg.Value.Walls
             self.Tstart_wall = model_params.Tstart.Value.Walls
             self.TmaxLST_wall = model_params.TmaxLST.Value.Walls
-            logger.info("TgMaps initialized with default (no land cover) parameters.")
+            if not quiet:
+                logger.info("TgMaps initialized with default (no land cover) parameters.")
         else:
             if raster_data.lcgrid is None:
                 raise ValueError("Land cover grid is not available.")
@@ -947,9 +1055,16 @@ class TgMaps:
             name_to_emissivity = {name: getattr(model_params.Emissivity.Value, name) for name in id_to_name.values()}
             name_to_tmaxlst = {name: getattr(model_params.TmaxLST.Value, name) for name in id_to_name.values()}
             name_to_tsdeg = {name: getattr(model_params.Ts_deg.Value, name) for name in id_to_name.values()}
+            # Check for invalid land cover IDs in the grid
+            unique_lc_ids = np.unique(lc_grid[~np.isnan(lc_grid)])
+            invalid_ids = set(unique_lc_ids) - set(valid_ids)
+            if invalid_ids:
+                logger.warning(f"Land cover grid contains invalid IDs: {sorted(invalid_ids)}. These will be ignored.")
             # Perform replacements for each valid land cover ID
             for i in valid_ids:
                 mask = lc_grid == i
+                if not np.any(mask):
+                    continue
                 name = id_to_name[i]
                 self.Tstart[mask] = name_to_tstart[name]
                 self.alb_grid[mask] = name_to_albedo[name]
@@ -960,7 +1075,8 @@ class TgMaps:
             self.TgK_wall = getattr(model_params.Ts_deg.Value, "Walls", None)
             self.Tstart_wall = getattr(model_params.Tstart.Value, "Walls", None)
             self.TmaxLST_wall = getattr(model_params.TmaxLST.Value, "Walls", None)
-            logger.info("TgMaps initialized using land cover grid.")
+            if not quiet:
+                logger.info("TgMaps initialized using land cover grid.")
 
 
 class WallsData:
@@ -980,13 +1096,20 @@ class WallsData:
         raster_data: RasterData,
         weather_data: EnvironData,
         tg_maps: TgMaps,
+        tile_spec: Optional[TileSpec] = None,
     ):
         if model_configs.use_wall_scheme:
-            logger.info("Loading wall scheme data from %s", model_configs.wall_path)
+            if not tile_spec:
+                logger.info("Loading wall scheme data from %s", model_configs.wall_path)
             wall_path_str = str(common.check_path(model_configs.wall_path, make_dir=False))
             wallData = np.load(wall_path_str)
             #
-            self.voxelMaps = wallData["voxelId"]
+            if tile_spec:
+                row_slice, col_slice = tile_spec.full_slice
+                self.voxelMaps = wallData["voxelId"][row_slice, col_slice]
+            else:
+                self.voxelMaps = wallData["voxelId"]
+
             self.voxelTable = wallData["voxelTable"]
             # Get wall type
             # TODO:
@@ -999,6 +1122,10 @@ class WallsData:
                 self.walls_scheme.copy(), raster_data.scale, raster_data.dsm, None, 100.0 / 180.0
             )
             # Calculate timeStep
+            if len(weather_data.YYYY) < 2:
+                raise ValueError(
+                    "Weather data must contain at least 2 timesteps to calculate timeStep for wall scheme."
+                )
             first_timestep = (
                 pd.to_datetime(weather_data.YYYY[0], format="%Y")
                 + pd.to_timedelta(weather_data.DOY[0] - 1, unit="d")
@@ -1032,7 +1159,8 @@ class WallsData:
                 + pd.to_timedelta(weather_data.hours, unit="h")
                 + pd.to_timedelta(weather_data.minu, unit="m")
             )
-            logger.info("Wall scheme data loaded and processed.")
+            if not tile_spec:
+                logger.info("Wall scheme data loaded and processed.")
         else:
             self.voxelMaps = None
             self.voxelTable = None
@@ -1040,4 +1168,398 @@ class WallsData:
             self.walls_scheme = np.ones((raster_data.rows, raster_data.cols), dtype=np.float32) * 10.0
             self.dirwalls_scheme = np.ones((raster_data.rows, raster_data.cols), dtype=np.float32) * 10.0
             self.met_for_xarray = None
-            logger.info("Wall scheme not used; default wall data initialized.")
+            if not tile_spec:
+                logger.info("Wall scheme not used; default wall data initialized.")
+
+
+class TiledRasterData(RasterData):
+    """
+    Tiled version of RasterData that uses lazy loading.
+
+    This class extends RasterData to support tiled loading of large rasters,
+    reducing memory usage by loading tiles on demand.
+    """
+
+    def __init__(
+        self,
+        model_configs: SolweigConfig,
+        model_params,
+        svf_data,  # Can be SvfData or TiledSvfData
+        amax_local_window_m: int = 100,
+        amax_local_perc: float = 99.9,
+        tile_manager=None,  # Optional: pass in an existing TileManager
+    ):
+        """Initialize tiled raster data with lazy loading."""
+        from .tile_manager import LazyRasterLoader, TileManager
+
+        if model_configs.dsm_path is None:
+            raise ValueError("DSM path must be provided before initializing raster data.")
+        if model_configs.wh_path is None or model_configs.wa_path is None:
+            raise ValueError("Wall height and aspect rasters must be provided.")
+        if model_configs.output_dir is None:
+            raise ValueError("Output directory must be configured before initializing raster data.")
+
+        # Load only metadata without reading full raster data
+        # Use a small sample to get dimensions and transform
+        sample_dsm, trf_arr, crs_wkt, nd_val = common.load_raster(
+            model_configs.dsm_path, bbox=None, coerce_f64_to_f32=True
+        )
+
+        # Store metadata
+        self.trf_arr = trf_arr
+        self.crs_wkt = crs_wkt
+        self.nd_val = nd_val
+        self.scale = 1 / trf_arr[1]
+        self.rows = sample_dsm.shape[0]
+        self.cols = sample_dsm.shape[1]
+        pixel_size = trf_arr[1]
+
+        # Store configuration for lazy amax calculation
+        self.model_configs = model_configs
+        self.model_params = model_params
+        self.amax_local_window_m = amax_local_window_m
+        self.amax_local_perc = amax_local_perc
+
+        # Calculate a conservative global amaxvalue for tile overlap
+        # Use the sample data we already loaded
+        if model_configs.dem_path is None:
+            # Without DEM, use DSM range as conservative estimate
+            global_amax = float(np.nanmax(sample_dsm) - np.nanmin(sample_dsm))
+        else:
+            # With DEM, estimate from sample (conservative)
+            # Load just a sample of DEM for quick estimate
+            sample_dem, _, _, _ = common.load_raster(model_configs.dem_path, bbox=None, coerce_f64_to_f32=True)
+            height_diff = sample_dsm - sample_dem
+            global_amax = float(np.nanpercentile(height_diff[~np.isnan(height_diff)], 99.9))
+
+        # Add safety margin and cap at reasonable maximum
+        global_amax = min(global_amax * 1.2, 200.0)  # 20% safety margin, max 200m
+        self.amaxvalue = global_amax
+
+        # Clean up sample data to free memory immediately
+        del sample_dsm
+        if model_configs.dem_path is not None and "sample_dem" in locals():
+            del sample_dem
+
+        # Get or create tile manager
+        if tile_manager is not None:
+            # Use provided tile manager and update with shadow-aware amax
+            self.tile_manager = tile_manager
+            self.tile_manager.amaxvalue = global_amax
+            self.tile_manager._generate_tiles()  # Regenerate with new overlap
+            logger.info(
+                f"Using provided TileManager, updated with amax={global_amax:.1f}m, "
+                f"{len(self.tile_manager.tiles)} tiles"
+            )
+        else:
+            # Create new tile manager with conservative overlap
+            self.tile_manager = TileManager(
+                rows=self.rows,
+                cols=self.cols,
+                tile_size=model_configs.tile_size,
+                amaxvalue=global_amax,
+                pixel_size=pixel_size,
+            )
+
+            logger.info(
+                f"TiledRasterData initialized: {self.rows}x{self.cols}, "
+                f"tile_size={model_configs.tile_size}, {len(self.tile_manager.tiles)} tiles, "
+                f"conservative amax={global_amax:.1f}m for overlap calculation"
+            )
+
+        # Create lazy loaders for rasters (but don't load data yet)
+        self.dsm_loader = LazyRasterLoader(model_configs.dsm_path, self.tile_manager)
+        self.wh_loader = LazyRasterLoader(model_configs.wh_path, self.tile_manager)
+        self.wa_loader = LazyRasterLoader(model_configs.wa_path, self.tile_manager)
+
+        # Optional rasters
+        self.dem_loader = None
+        if model_configs.dem_path:
+            self.dem_loader = LazyRasterLoader(model_configs.dem_path, self.tile_manager)
+
+        self.cdsm_loader = None
+        self.tdsm_loader = None
+        if model_configs.use_veg_dem and model_configs.cdsm_path:
+            self.cdsm_loader = LazyRasterLoader(model_configs.cdsm_path, self.tile_manager)
+            if model_configs.tdsm_path:
+                self.tdsm_loader = LazyRasterLoader(model_configs.tdsm_path, self.tile_manager)
+
+        self.lc_loader = None
+        if model_configs.use_landcover and model_configs.lc_path:
+            self.lc_loader = LazyRasterLoader(model_configs.lc_path, self.tile_manager)
+
+        logger.info("TiledRasterData loaders initialized (data not loaded yet)")
+        logger.info("Note: Direct property access (e.g., .dsm) is disabled. Use load_tile() instead.")
+
+    def compute_tile_amaxvalue(self, tile_idx: int) -> float:
+        """
+        Compute amaxvalue dynamically for a specific tile.
+
+        This loads only the tile data and computes the local amax,
+        which is more accurate than the global conservative estimate.
+
+        Args:
+            tile_idx: Index of tile
+
+        Returns:
+            Local amaxvalue for the tile in meters
+        """
+        tile_data = self.load_tile(tile_idx)
+
+        dsm_tile = tile_data["dsm"]
+        dem_tile = tile_data["dem"]
+        cdsm_tile = tile_data["cdsm"]
+        tdsm_tile = tile_data["tdsm"]
+
+        # Compute local amax for this tile
+        _, _, _, _, tile_amax = raster_preprocessing(
+            dsm_tile,
+            dem_tile,
+            cdsm_tile,
+            tdsm_tile,
+            self.model_params.Tree_settings.Value.Trunk_ratio,
+            self.trf_arr[1],
+            self.amax_local_window_m,
+            self.amax_local_perc,
+            quiet=True,
+        )
+
+        return tile_amax
+
+    def load_tile(self, tile_idx: int, preprocess: bool = False) -> dict:
+        """
+        Load all raster data for a specific tile.
+
+        Args:
+            tile_idx: Index of tile to load
+            preprocess: If True, apply raster preprocessing to tile data
+
+        Returns:
+            Dictionary with tile data for all rasters
+        """
+        tile_spec = self.tile_manager.get_tile(tile_idx)
+
+        tile_data = {
+            "tile_spec": tile_spec,
+            "dsm": self.dsm_loader.load_tile(tile_idx),
+            "wallheight": self.wh_loader.load_tile(tile_idx),
+            "wallaspect": self.wa_loader.load_tile(tile_idx),
+        }
+
+        if self.dem_loader:
+            tile_data["dem"] = self.dem_loader.load_tile(tile_idx)
+        else:
+            tile_data["dem"] = None
+
+        if self.cdsm_loader:
+            tile_data["cdsm"] = self.cdsm_loader.load_tile(tile_idx)
+        else:
+            tile_data["cdsm"] = None
+
+        if self.tdsm_loader:
+            tile_data["tdsm"] = self.tdsm_loader.load_tile(tile_idx)
+        else:
+            tile_data["tdsm"] = None
+
+        if self.lc_loader:
+            tile_data["lcgrid"] = self.lc_loader.load_tile(tile_idx)
+        else:
+            tile_data["lcgrid"] = None
+
+        # Apply preprocessing if requested
+        if preprocess:
+            dsm, dem, cdsm, tdsm, tile_amax = raster_preprocessing(
+                tile_data["dsm"],
+                tile_data["dem"],
+                tile_data["cdsm"],
+                tile_data["tdsm"],
+                self.model_params.Tree_settings.Value.Trunk_ratio,
+                self.trf_arr[1],
+                self.amax_local_window_m,
+                self.amax_local_perc,
+                quiet=True,
+            )
+
+            # Update tile data with preprocessed arrays
+            tile_data["dsm"] = dsm
+            tile_data["dem"] = dem
+            tile_data["cdsm"] = cdsm
+            tile_data["tdsm"] = tdsm
+            tile_data["tile_amax"] = tile_amax
+
+            # Compute derived properties for tile
+            if self.model_configs.use_veg_dem and cdsm is not None and tdsm is not None:
+                tile_data["bush"] = np.ascontiguousarray(np.logical_not(tdsm * cdsm) * cdsm, dtype=np.float32)
+            else:
+                tile_data["bush"] = np.zeros(tile_data["dsm"].shape, dtype=np.float32)
+
+            # Compute buildings for tile
+            if not self.model_configs.use_dem_for_buildings and tile_data["lcgrid"] is not None:
+                lcgrid = tile_data["lcgrid"]
+                buildings = np.copy(lcgrid)
+                buildings[buildings == 7] = 1
+                buildings[buildings == 6] = 1
+                buildings[buildings == 5] = 1
+                buildings[buildings == 4] = 1
+                buildings[buildings == 3] = 1
+                buildings[buildings == 2] = 0
+                tile_data["buildings"] = np.ascontiguousarray(buildings, dtype=np.float32)
+            elif self.model_configs.use_dem_for_buildings and dem is not None:
+                height_diff = dsm - dem
+                buildings = np.where(
+                    ~np.isnan(dem) & ~np.isnan(dsm),
+                    height_diff,
+                    np.float32(0.0),
+                )
+                buildings[buildings < 2.0] = 1.0
+                buildings[buildings >= 2.0] = 0.0
+                tile_data["buildings"] = np.ascontiguousarray(buildings, dtype=np.float32)
+            else:
+                tile_data["buildings"] = None
+
+        return tile_data
+
+    def clear_cache(self):
+        """Clear all cached tile data to free memory."""
+        self.dsm_loader.clear_cache()
+        self.wh_loader.clear_cache()
+        self.wa_loader.clear_cache()
+        if self.dem_loader:
+            self.dem_loader.clear_cache()
+        if self.cdsm_loader:
+            self.cdsm_loader.clear_cache()
+        if self.tdsm_loader:
+            self.tdsm_loader.clear_cache()
+        if self.lc_loader:
+            self.lc_loader.clear_cache()
+
+
+class TiledSvfData(SvfData):
+    """
+    Tiled version of SvfData that uses lazy loading.
+
+    This class extends SvfData to support tiled loading of SVF rasters,
+    reducing memory usage by loading tiles on demand.
+    """
+
+    @staticmethod
+    def create_tile_manager(model_configs: SolweigConfig):
+        """
+        Create an independent TileManager based on raster dimensions.
+
+        Args:
+            model_configs: SOLWEIG configuration
+
+        Returns:
+            TileManager instance
+        """
+
+        # Get raster dimensions from DSM
+        dsm_arr, trf_arr, _, _ = common.load_raster(model_configs.dsm_path)
+        rows, cols = dsm_arr.shape
+        pixel_size = trf_arr[1]
+
+        # Create tile manager (amaxvalue will be updated later by TiledRasterData)
+        tile_manager = TileManager(
+            rows=rows,
+            cols=cols,
+            tile_size=model_configs.tile_size,
+            pixel_size=pixel_size,
+            amaxvalue=0.0,  # Placeholder, will be updated by TiledRasterData
+        )
+        logger.info("Created independent TileManager: %d tiles", len(tile_manager.tiles))
+        return tile_manager
+
+    def __init__(self, model_configs: SolweigConfig, tile_manager):
+        """Initialize tiled SVF data with lazy loading."""
+        from .tile_manager import LazyRasterLoader
+
+        logger.info("Loading SVF data (tiled) from %s", model_configs.svf_path)
+        svf_path_str = str(common.check_path(model_configs.svf_path, make_dir=False))
+        in_path_str = str(common.check_path(model_configs.working_dir, make_dir=False))
+
+        # Unzip SVF files
+        with zipfile.ZipFile(svf_path_str, "r") as zip_ref:
+            zip_ref.extractall(in_path_str)
+
+        # Store the provided tile manager
+        self.tile_manager = tile_manager
+        logger.info("Using provided TileManager for SVF data: %d tiles", len(self.tile_manager.tiles))
+
+        # Create lazy loaders for SVF rasters
+        self.svf_loader = LazyRasterLoader(in_path_str + "/svf.tif", self.tile_manager)
+        self.svf_east_loader = LazyRasterLoader(in_path_str + "/svfE.tif", self.tile_manager)
+        self.svf_south_loader = LazyRasterLoader(in_path_str + "/svfS.tif", self.tile_manager)
+        self.svf_west_loader = LazyRasterLoader(in_path_str + "/svfW.tif", self.tile_manager)
+        self.svf_north_loader = LazyRasterLoader(in_path_str + "/svfN.tif", self.tile_manager)
+
+        if model_configs.use_veg_dem:
+            self.svf_veg_loader = LazyRasterLoader(in_path_str + "/svfveg.tif", self.tile_manager)
+            self.svf_veg_east_loader = LazyRasterLoader(in_path_str + "/svfEveg.tif", self.tile_manager)
+            self.svf_veg_south_loader = LazyRasterLoader(in_path_str + "/svfSveg.tif", self.tile_manager)
+            self.svf_veg_west_loader = LazyRasterLoader(in_path_str + "/svfWveg.tif", self.tile_manager)
+            self.svf_veg_north_loader = LazyRasterLoader(in_path_str + "/svfNveg.tif", self.tile_manager)
+            self.svf_veg_blocks_bldg_sh_loader = LazyRasterLoader(in_path_str + "/svfaveg.tif", self.tile_manager)
+            self.svf_veg_blocks_bldg_sh_east_loader = LazyRasterLoader(in_path_str + "/svfEaveg.tif", self.tile_manager)
+            self.svf_veg_blocks_bldg_sh_south_loader = LazyRasterLoader(
+                in_path_str + "/svfSaveg.tif", self.tile_manager
+            )
+            self.svf_veg_blocks_bldg_sh_west_loader = LazyRasterLoader(in_path_str + "/svfWaveg.tif", self.tile_manager)
+            self.svf_veg_blocks_bldg_sh_north_loader = LazyRasterLoader(
+                in_path_str + "/svfNaveg.tif", self.tile_manager
+            )
+            self.use_veg = True
+        else:
+            self.use_veg = False
+
+        logger.info("TiledSvfData loaders initialized (data not loaded yet)")
+        logger.info("Use load_tile(tile_idx) for memory-efficient tile-based access")
+        logger.info("Note: Direct property access (e.g., .svf) is disabled. Use load_tile() instead.")
+
+    def load_tile(self, tile_idx: int) -> dict:
+        """
+        Load all SVF data for a specific tile.
+
+        Returns:
+            Dictionary with tile data for all SVF rasters
+        """
+        tile_data = {
+            "svf": self.svf_loader.load_tile(tile_idx),
+            "svf_east": self.svf_east_loader.load_tile(tile_idx),
+            "svf_south": self.svf_south_loader.load_tile(tile_idx),
+            "svf_west": self.svf_west_loader.load_tile(tile_idx),
+            "svf_north": self.svf_north_loader.load_tile(tile_idx),
+        }
+
+        if self.use_veg:
+            tile_data["svf_veg"] = self.svf_veg_loader.load_tile(tile_idx)
+            tile_data["svf_veg_east"] = self.svf_veg_east_loader.load_tile(tile_idx)
+            tile_data["svf_veg_south"] = self.svf_veg_south_loader.load_tile(tile_idx)
+            tile_data["svf_veg_west"] = self.svf_veg_west_loader.load_tile(tile_idx)
+            tile_data["svf_veg_north"] = self.svf_veg_north_loader.load_tile(tile_idx)
+            tile_data["svf_veg_blocks_bldg_sh"] = self.svf_veg_blocks_bldg_sh_loader.load_tile(tile_idx)
+            tile_data["svf_veg_blocks_bldg_sh_east"] = self.svf_veg_blocks_bldg_sh_east_loader.load_tile(tile_idx)
+            tile_data["svf_veg_blocks_bldg_sh_south"] = self.svf_veg_blocks_bldg_sh_south_loader.load_tile(tile_idx)
+            tile_data["svf_veg_blocks_bldg_sh_west"] = self.svf_veg_blocks_bldg_sh_west_loader.load_tile(tile_idx)
+            tile_data["svf_veg_blocks_bldg_sh_north"] = self.svf_veg_blocks_bldg_sh_north_loader.load_tile(tile_idx)
+
+        return tile_data
+
+    def clear_cache(self):
+        """Clear all cached tile data to free memory."""
+        self.svf_loader.clear_cache()
+        self.svf_east_loader.clear_cache()
+        self.svf_south_loader.clear_cache()
+        self.svf_west_loader.clear_cache()
+        self.svf_north_loader.clear_cache()
+        if self.use_veg:
+            self.svf_veg_loader.clear_cache()
+            self.svf_veg_east_loader.clear_cache()
+            self.svf_veg_south_loader.clear_cache()
+            self.svf_veg_west_loader.clear_cache()
+            self.svf_veg_north_loader.clear_cache()
+            self.svf_veg_blocks_bldg_sh_loader.clear_cache()
+            self.svf_veg_blocks_bldg_sh_east_loader.clear_cache()
+            self.svf_veg_blocks_bldg_sh_south_loader.clear_cache()
+            self.svf_veg_blocks_bldg_sh_west_loader.clear_cache()
+            self.svf_veg_blocks_bldg_sh_north_loader.clear_cache()
