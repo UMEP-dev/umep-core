@@ -1,4 +1,5 @@
 import logging
+import math
 from pathlib import Path
 
 import numpy as np
@@ -28,16 +29,113 @@ except:
     logger.info("Using GDAL for raster operations.")
 
 
+FLOAT_TOLERANCE = 1e-9
+
+
+def _assert_north_up(transform) -> None:
+    """Ensure the raster transform describes a north-up raster."""
+    if hasattr(transform, "b") and hasattr(transform, "d"):
+        if not math.isclose(transform.b, 0.0, abs_tol=FLOAT_TOLERANCE) or not math.isclose(
+            transform.d, 0.0, abs_tol=FLOAT_TOLERANCE
+        ):
+            raise ValueError("Only north-up rasters (no rotation) are supported.")
+    else:
+        # GDAL-style tuple (c, a, b, f, d, e)
+        if len(transform) < 6:
+            raise ValueError("Transform must contain 6 elements.")
+        if not math.isclose(transform[2], 0.0, abs_tol=FLOAT_TOLERANCE) or not math.isclose(
+            transform[4], 0.0, abs_tol=FLOAT_TOLERANCE
+        ):
+            raise ValueError("Only north-up rasters (no rotation) are supported.")
+
+
+def _shrink_axis_to_grid(min_val: float, max_val: float, origin: float, pixel_size: float) -> tuple[float, float]:
+    if pixel_size == 0:
+        raise ValueError("Pixel size must be non-zero to shrink bbox to pixel grid.")
+    step = abs(pixel_size)
+    start_idx = math.ceil(((min_val - origin) / step) - FLOAT_TOLERANCE)
+    end_idx = math.floor(((max_val - origin) / step) + FLOAT_TOLERANCE)
+    new_min = origin + start_idx * step
+    new_max = origin + end_idx * step
+    if not new_max > new_min:
+        raise ValueError("Bounding box collapsed after snapping to the pixel grid.")
+    return new_min, new_max
+
+
+def shrink_bbox_to_pixel_grid(
+    bbox: tuple[float, float, float, float],
+    origin_x: float,
+    origin_y: float,
+    pixel_width: float,
+    pixel_height: float,
+) -> tuple[float, float, float, float]:
+    """Shrink bbox so its edges land on the pixel grid defined by the raster origin."""
+
+    minx, miny, maxx, maxy = bbox
+    if minx >= maxx or miny >= maxy:
+        raise ValueError("Bounding box is invalid (min must be < max for both axes).")
+    snapped_minx, snapped_maxx = _shrink_axis_to_grid(minx, maxx, origin_x, pixel_width)
+    snapped_miny, snapped_maxy = _shrink_axis_to_grid(miny, maxy, origin_y, pixel_height)
+    return snapped_minx, snapped_miny, snapped_maxx, snapped_maxy
+
+
+def _bounds_to_tuple(bounds) -> tuple[float, float, float, float]:
+    if hasattr(bounds, "left"):
+        return bounds.left, bounds.bottom, bounds.right, bounds.top
+    return tuple(bounds)
+
+
+def _validate_bbox_within_bounds(
+    bbox: tuple[float, float, float, float], bounds, *, tol: float = FLOAT_TOLERANCE
+) -> None:
+    minx, miny, maxx, maxy = bbox
+    left, bottom, right, top = _bounds_to_tuple(bounds)
+    if minx < left - tol or maxx > right + tol or miny < bottom - tol or maxy > top + tol:
+        raise ValueError("Bounding box is not fully contained within the raster dataset bounds")
+
+
+def _compute_bounds_from_transform(transform, width: int, height: int) -> tuple[float, float, float, float]:
+    """Return raster bounds for a GDAL-style transform tuple."""
+    left = transform[0]
+    top = transform[3]
+    right = transform[0] + width * transform[1]
+    bottom = transform[3] + height * transform[5]
+    minx = min(left, right)
+    maxx = max(left, right)
+    miny = min(top, bottom)
+    maxy = max(top, bottom)
+    return minx, miny, maxx, maxy
+
+
+def _normalise_bbox(bbox_sequence) -> tuple[float, float, float, float]:
+    try:
+        minx, miny, maxx, maxy = bbox_sequence
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError("Bounding box must contain exactly four numeric values") from exc
+    return float(minx), float(miny), float(maxx), float(maxy)
+
+
 def rasterise_gdf(gdf, geom_col, ht_col, bbox=None, pixel_size: int = 1):
     # Define raster parameters
     if bbox is not None:
         # Unpack bbox values
-        minx, miny, maxx, maxy = bbox
+        minx, miny, maxx, maxy = _normalise_bbox(bbox)
     else:
         # Use the total bounds of the GeoDataFrame
-        minx, miny, maxx, maxy = gdf.total_bounds
-    width = int((maxx - minx) / pixel_size)
-    height = int((maxy - miny) / pixel_size)
+        minx, miny, maxx, maxy = map(float, gdf.total_bounds)
+    if pixel_size <= 0:
+        raise ValueError("Pixel size must be a positive number.")
+    minx, miny, maxx, maxy = shrink_bbox_to_pixel_grid(
+        (minx, miny, maxx, maxy),
+        origin_x=minx,
+        origin_y=maxy,
+        pixel_width=pixel_size,
+        pixel_height=pixel_size,
+    )
+    width = int(round((maxx - minx) / pixel_size))
+    height = int(round((maxy - miny) / pixel_size))
+    if width <= 0 or height <= 0:
+        raise ValueError("Bounding box collapsed after snapping to pixel grid.")
     transform = from_origin(minx, maxy, pixel_size, pixel_size)
     # Create a blank array for the raster
     raster = np.zeros((height, width), dtype=np.float32)
@@ -233,23 +331,25 @@ def load_raster(
         raise FileNotFoundError(f"Raster file {path} does not exist.")
     if GDAL_ENV is False:
         with rasterio.open(path) as dataset:
+            _assert_north_up(dataset.transform)
             crs_wkt = dataset.crs.to_wkt() if dataset.crs is not None else None
-            dataset_bounds = dataset.bounds
             no_data_val = dataset.nodata
+            transform = dataset.transform
             if bbox is not None:
-                # Create bbox geometry for masking
-                bbox_geom = geometry.box(*bbox)
-                if not (
-                    dataset_bounds.left <= bbox[0] <= dataset_bounds.right
-                    and dataset_bounds.left <= bbox[2] <= dataset_bounds.right
-                    and dataset_bounds.bottom <= bbox[1] <= dataset_bounds.top
-                    and dataset_bounds.bottom <= bbox[3] <= dataset_bounds.top
-                ):
-                    raise ValueError("Bounding box is not fully contained within the raster dataset bounds")
+                bbox_tuple = _normalise_bbox(bbox)
+                snapped_bbox = shrink_bbox_to_pixel_grid(
+                    bbox_tuple,
+                    origin_x=transform.c,
+                    origin_y=transform.f,
+                    pixel_width=transform.a,
+                    pixel_height=transform.e,
+                )
+                _validate_bbox_within_bounds(snapped_bbox, dataset.bounds)
+                bbox_geom = geometry.box(*snapped_bbox)
                 rast, trf = mask(dataset, [bbox_geom], crop=True)
             else:
                 rast = dataset.read()
-                trf = dataset.transform
+                trf = transform
             # Convert rasterio Affine to GDAL-style list
             trf_arr = [trf.c, trf.a, trf.b, trf.f, trf.d, trf.e]
             # rast shape: (bands, rows, cols)
@@ -270,6 +370,7 @@ def load_raster(
         if dataset is None:
             raise FileNotFoundError(f"Could not open {path}")
         trf = dataset.GetGeoTransform()
+        _assert_north_up(trf)
         # GetProjection returns WKT string (or empty string)
         crs_wkt = dataset.GetProjection() or None
         rb = dataset.GetRasterBand(band + 1)
@@ -282,11 +383,23 @@ def load_raster(
             rast_arr = rast_arr.astype(np.float32)
         no_data_val = rb.GetNoDataValue()
         if bbox is not None:
-            min_x, min_y, max_x, max_y = bbox
-            xoff = int((min_x - trf[0]) / trf[1])
-            yoff = int((trf[3] - max_y) / abs(trf[5]))
-            xsize = int((max_x - min_x) / trf[1])
-            ysize = int((max_y - min_y) / abs(trf[5]))
+            bbox_tuple = _normalise_bbox(bbox)
+            snapped_bbox = shrink_bbox_to_pixel_grid(
+                bbox_tuple,
+                origin_x=trf[0],
+                origin_y=trf[3],
+                pixel_width=trf[1],
+                pixel_height=trf[5],
+            )
+            bounds = _compute_bounds_from_transform(trf, dataset.RasterXSize, dataset.RasterYSize)
+            _validate_bbox_within_bounds(snapped_bbox, bounds)
+            min_x, min_y, max_x, max_y = snapped_bbox
+            pixel_width = trf[1]
+            pixel_height = abs(trf[5])
+            xoff = int(round((min_x - trf[0]) / pixel_width))
+            yoff = int(round((trf[3] - max_y) / pixel_height))
+            xsize = int(round((max_x - min_x) / pixel_width))
+            ysize = int(round((max_y - min_y) / pixel_height))
             # guard offsets/sizes
             if xoff < 0 or yoff < 0 or xsize <= 0 or ysize <= 0:
                 dataset = None
