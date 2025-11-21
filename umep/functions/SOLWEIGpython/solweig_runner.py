@@ -7,17 +7,6 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-# handle for QGIS which does not have matplotlib by default?
-try:
-    from matplotlib import pyplot as plt
-
-    PLT = True
-except ImportError:
-    PLT = False
-
 from ... import common
 from ...class_configs import (
     EnvironData,
@@ -34,6 +23,17 @@ from . import Solweig_2025a_calc_forprocessing as so
 from . import UTCI_calculations as utci
 from .CirclePlotBar import PolarBarPlot
 from .wallsAsNetCDF import walls_as_netcdf
+
+try:
+    from matplotlib import pyplot as plt
+
+    PLT = True
+except ImportError:
+    PLT = False
+
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 def dict_to_namespace(d):
@@ -989,8 +989,8 @@ class SolweigRun:
                     out_path = str(self.config.output_dir) + "/" + prefix + "_" + time_code + ".tif"
                     common.create_empty_raster(
                         out_path,
-                        self.cols,
                         self.rows,
+                        self.cols,
                         self.transform,
                         str(self.crs) if self.crs else "",
                         nodata=-9999.0,
@@ -999,8 +999,8 @@ class SolweigRun:
         # Create average Tmrt raster
         common.create_empty_raster(
             str(self.config.output_dir) + "/Tmrt_average.tif",
-            self.cols,
             self.rows,
+            self.cols,
             self.transform,
             str(self.crs) if self.crs else "",
             nodata=-9999.0,
@@ -1339,43 +1339,43 @@ class SolweigRun:
                     common.write_raster_window(
                         str(self.config.output_dir) + "/Tmrt_" + time_code + ".tif",
                         Tmrt_core,
-                        tile.write_window,
+                        tile.write_window.to_slices(),
                     )
                 if self.config.output_kup:
                     common.write_raster_window(
                         str(self.config.output_dir) + "/Kup_" + time_code + ".tif",
                         Kup[core_slice],
-                        tile.write_window,
+                        tile.write_window.to_slices(),
                     )
                 if self.config.output_kdown:
                     common.write_raster_window(
                         str(self.config.output_dir) + "/Kdown_" + time_code + ".tif",
                         Kdown[core_slice],
-                        tile.write_window,
+                        tile.write_window.to_slices(),
                     )
                 if self.config.output_lup:
                     common.write_raster_window(
                         str(self.config.output_dir) + "/Lup_" + time_code + ".tif",
                         Lup[core_slice],
-                        tile.write_window,
+                        tile.write_window.to_slices(),
                     )
                 if self.config.output_ldown:
                     common.write_raster_window(
                         str(self.config.output_dir) + "/Ldown_" + time_code + ".tif",
                         Ldown[core_slice],
-                        tile.write_window,
+                        tile.write_window.to_slices(),
                     )
                 if self.config.output_sh:
                     common.write_raster_window(
                         str(self.config.output_dir) + "/Shadow_" + time_code + ".tif",
                         shadow[core_slice],
-                        tile.write_window,
+                        tile.write_window.to_slices(),
                     )
                 if self.config.output_kdiff:
                     common.write_raster_window(
                         str(self.config.output_dir) + "/Kdiff_" + time_code + ".tif",
                         dRad[core_slice],
-                        tile.write_window,
+                        tile.write_window.to_slices(),
                     )
 
                 # Aggregate Tmrt (handle NaN and inf values safely)
@@ -1523,5 +1523,5 @@ class SolweigRun:
                 common.write_raster_window(
                     str(self.config.output_dir) + "/Tmrt_average.tif",
                     tmrt_avg_tile,
-                    tile.write_window,
+                    tile.write_window.to_slices(),
                 )

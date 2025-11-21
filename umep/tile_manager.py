@@ -15,6 +15,23 @@ logger.setLevel(logging.INFO)
 
 
 @dataclass
+class Window:
+    """Simple window specification with row/col offset and dimensions."""
+
+    row_off: int
+    col_off: int
+    height: int
+    width: int
+
+    def to_slices(self) -> tuple[slice, slice]:
+        """Convert to tuple of slices (row_slice, col_slice)."""
+        return (
+            slice(self.row_off, self.row_off + self.height),
+            slice(self.col_off, self.col_off + self.width),
+        )
+
+
+@dataclass
 class TileSpec:
     """Specification for a tile with overlap."""
 
@@ -60,11 +77,23 @@ class TileSpec:
         )
 
     @property
-    def write_window(self) -> tuple[slice, slice]:
-        """Get slices for writing core tile to global raster."""
-        return (
-            slice(self.row_start, self.row_end),
-            slice(self.col_start, self.col_end),
+    def read_window(self) -> Window:
+        """Get window for reading full tile (with overlap) from global raster."""
+        return Window(
+            row_off=self.row_start_full,
+            col_off=self.col_start_full,
+            height=self.row_end_full - self.row_start_full,
+            width=self.col_end_full - self.col_start_full,
+        )
+
+    @property
+    def write_window(self) -> Window:
+        """Get window for writing core tile to global raster."""
+        return Window(
+            row_off=self.row_start,
+            col_off=self.col_start,
+            height=self.row_end - self.row_start,
+            width=self.col_end - self.col_start,
         )
 
 

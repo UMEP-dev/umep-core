@@ -216,30 +216,8 @@ def generate_svf(
             ret = svf.svfForProcessing153(dsm_tile, cdsm_tile, tdsm_tile, dsm_scale, use_cdsm_bool, amax)
 
             # Write outputs (core only)
-            # Get the starting position from tile.write_window
-            # tile.write_window is a tuple of (row_slice, col_slice) indicating output position
-            write_row_out, write_col_out = tile.write_window
-            row_start = write_row_out.start if hasattr(write_row_out, "start") else write_row_out[0]
-            col_start = write_col_out.start if hasattr(write_col_out, "start") else write_col_out[0]
-            row_end = write_row_out.stop if hasattr(write_row_out, "stop") else write_row_out[1]
-            col_end = write_col_out.stop if hasattr(write_col_out, "stop") else write_col_out[1]
-
-            # Calculate actual core dimensions from the write window (clamped to raster size)
-            core_height = row_end - row_start
-            core_width = col_end - col_start
-
-            # Reconstruct core_slice to match the clamped dimensions
-            # This ensures we don't try to write more than the raster size
-            core_slice = (
-                slice(tile.overlap_top, tile.overlap_top + core_height),
-                slice(tile.overlap_left, tile.overlap_left + core_width),
-            )
-            row_slice, col_slice = core_slice
-
-            # Create output window slices with correct dimensions
-            write_row_slice = slice(row_start, row_start + core_height)
-            write_col_slice = slice(col_start, col_start + core_width)
-            write_win = (write_row_slice, write_col_slice)
+            core_slice = tile.core_slice()
+            write_win = tile.write_window.to_slices()
 
             # Helper to write core - bind loop vars with default args
             def write_core(fname, data, cs=core_slice, ww=write_win):
@@ -276,15 +254,11 @@ def generate_svf(
                 write_core("svf_total.tif", svftotal_tile)
 
             # Write shadow matrices to memmap
-            # Extract core for 3D arrays - use same row/col slices as above
-            core_slice_3d = (row_slice, col_slice, slice(None))
+            # Extract core for 3D arrays - use core_slice with added dimension
+            core_slice_3d = core_slice + (slice(None),)
 
-            # Calculate destination slice in memmap using actual core dimensions
-            row_start_out = write_row_start
-            row_end_out = write_row_start + core_height
-            col_start_out = write_col_start
-            col_end_out = write_col_start + core_width
-            write_slice_3d = (slice(row_start_out, row_end_out), slice(col_start_out, col_end_out), slice(None))
+            # Destination slice in memmap - use write_window directly
+            write_slice_3d = tile.write_window.to_slices() + (slice(None),)
 
             shmat_mem[write_slice_3d] = ret["shmat"][core_slice_3d]
             vegshmat_mem[write_slice_3d] = ret["vegshmat"][core_slice_3d]
