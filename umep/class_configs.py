@@ -935,9 +935,17 @@ class ShadowMatrices:
             def load_slice(key):
                 if tile_spec:
                     row_slice, col_slice = tile_spec.full_slice
-                    return data[key][row_slice, col_slice, :].astype(np.float32)
+                    arr = data[key][row_slice, col_slice, :]
                 else:
-                    return data[key].astype(np.float32)
+                    arr = data[key]
+
+                # Handle uint8 format (new optimized format - 75% smaller)
+                # Convert uint8 (0-255) back to float32 (0.0-1.0)
+                if arr.dtype == np.uint8:
+                    return arr.astype(np.float32) / 255.0
+                else:
+                    # Legacy float32 format
+                    return arr.astype(np.float32)
 
             self.shmat = load_slice("shadowmat")
             self.vegshmat = load_slice("vegshadowmat")
