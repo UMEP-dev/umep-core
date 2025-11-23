@@ -113,10 +113,8 @@ class SolweigRun:
             dsm_meta = common.get_raster_metadata(self.config.dsm_path)
             rows = dsm_meta["rows"]
             cols = dsm_meta["cols"]
-            if "res" in dsm_meta:
-                pixel_size = dsm_meta["res"][0]
-            else:
-                pixel_size = dsm_meta["transform"][1]  # GDAL transform[1] is pixel width
+            # Transform is always in GDAL format [c, a, b, f, d, e]
+            pixel_size = dsm_meta["transform"][1]  # transform[1] is pixel width
 
             # Check if svf.tif exists, if not unzip
             # This is critical because tiled loading expects files to be present
@@ -136,14 +134,9 @@ class SolweigRun:
             )
 
             # Location data from metadata
-            if "res" in dsm_meta:
-                # Rasterio Affine: (a, b, c, d, e, f) -> c=2 (xoff), f=5 (yoff)
-                left_x = dsm_meta["transform"][2]
-                top_y = dsm_meta["transform"][5]
-            else:
-                # GDAL: (c, a, b, f, d, e) -> c=0 (xoff), f=3 (yoff)
-                left_x = dsm_meta["transform"][0]
-                top_y = dsm_meta["transform"][3]
+            # Transform is always in GDAL format [c, a, b, f, d, e]
+            left_x = dsm_meta["transform"][0]  # c (xoff)
+            top_y = dsm_meta["transform"][3]  # f (yoff)
             lng, lat = common.xy_to_lnglat(dsm_meta["crs"], left_x, top_y)
 
             # Altitude approximation (we don't have full DSM loaded)
@@ -161,13 +154,8 @@ class SolweigRun:
             # Store metadata for later use
             self.rows = rows
             self.cols = cols
-            if "res" in dsm_meta:
-                # Convert Rasterio Affine to GDAL transform
-                # Affine: (a, b, c, d, e, f) -> GDAL: (c, a, b, f, d, e)
-                t = dsm_meta["transform"]
-                self.transform = [t.c, t.a, t.b, t.f, t.d, t.e]
-            else:
-                self.transform = dsm_meta["transform"]
+            # Transform is already in GDAL format [c, a, b, f, d, e]
+            self.transform = dsm_meta["transform"]
             self.crs = dsm_meta["crs"]
 
             # We do NOT instantiate RasterData/SvfData here.

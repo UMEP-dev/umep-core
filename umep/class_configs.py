@@ -618,13 +618,8 @@ class RasterData:
         if tile_spec:
             self.dsm = load(dsm_path)
             meta = common.get_raster_metadata(dsm_path)
-            if "res" in meta:
-                # Convert Rasterio Affine to GDAL transform
-                # Affine: (a, b, c, d, e, f) -> GDAL: (c, a, b, f, d, e)
-                t = meta["transform"]
-                self.trf_arr = [t.c, t.a, t.b, t.f, t.d, t.e]
-            else:
-                self.trf_arr = meta["transform"]
+            # Transform is already in GDAL format [c, a, b, f, d, e]
+            self.trf_arr = meta["transform"]
             self.crs_wkt = meta["crs"]
             self.nd_val = meta["nodata"]
         else:

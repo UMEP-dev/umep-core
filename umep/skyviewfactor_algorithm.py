@@ -97,13 +97,7 @@ def generate_svf(
         rows = dsm_meta["rows"]
         cols = dsm_meta["cols"]
 
-        # Handle rasterio vs GDAL transform
-        if "res" in dsm_meta:
-            # Convert Rasterio Affine to GDAL transform
-            # Affine: (a, b, c, d, e, f) -> GDAL: (c, a, b, f, d, e)
-            t = dsm_trf
-            dsm_trf = [t.c, t.a, t.b, t.f, t.d, t.e]
-
+        # Transform is already in GDAL format [c, a, b, f, d, e]
         dsm_pix_size = dsm_trf[1]
         dsm_scale = 1 / dsm_pix_size
 
