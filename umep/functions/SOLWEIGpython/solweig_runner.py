@@ -212,10 +212,14 @@ class SolweigRun:
         else:
             self.environ_data = self.load_met_weather(header_rows=1, delim=" ")
             logger.info("Weather data loaded from MET file")
-        # POIs check
+
         if self.config.poi_path:
             self.load_poi_data()
             logger.info("POI data loaded from %s", self.config.poi_path)
+
+        if self.config.woi_path:
+            self.load_woi_data()
+            logger.info("WOI data loaded from %s", self.config.woi_path)
 
     def test_hook(self) -> None:
         """Test hook for testing loaded init state."""
@@ -451,11 +455,6 @@ class SolweigRun:
             self.raster_data,
         )
         logger.info("TgMaps initialized")
-
-        # Import data for wall temperature parameterization
-        if self.config.woi_path:
-            self.load_woi_data()
-            logger.info("WOI data loaded from %s", self.config.woi_path)
 
         self.walls_data = WallsData(
             self.config,

@@ -50,7 +50,7 @@ class SolweigRunCore(SolweigRun):
         """Load points of interest (POIs) from a file."""
         poi_path_str = str(common.check_path(self.config.poi_path))
         pois_gdf = gpd.read_file(poi_path_str)
-        trf = Affine.from_gdal(*self.raster_data.trf_arr)
+        trf = Affine.from_gdal(*self.transform)
         self.poi_pixel_xys = np.zeros((len(pois_gdf), 3), dtype=np.float32) - 999
         self.poi_names = []
         for n, (idx, row) in enumerate(pois_gdf.iterrows()):
@@ -61,15 +61,15 @@ class SolweigRunCore(SolweigRun):
     def save_poi_results(self) -> None:
         """Save points of interest (POIs) results to a file."""
         # Convert pixel coordinates to geographic coordinates
-        xs = [r["col_idx"] * self.raster_data.trf_arr[1] + self.raster_data.trf_arr[0] for r in self.poi_results]
-        ys = [r["row_idx"] * self.raster_data.trf_arr[1] + self.raster_data.trf_arr[3] for r in self.poi_results]
+        xs = [r["col_idx"] * self.transform[1] + self.transform[0] for r in self.poi_results]
+        ys = [r["row_idx"] * self.transform[1] + self.transform[3] for r in self.poi_results]
         pois_gdf = gpd.GeoDataFrame(
             self.poi_results,
             geometry=gpd.points_from_xy(
                 xs,
                 ys,
             ),
-            crs=self.raster_data.crs_wkt,
+            crs=self.crs,
         )
         # Create a datetime column for multi-index
         pois_gdf["snapshot"] = pd.to_datetime(
@@ -88,7 +88,7 @@ class SolweigRunCore(SolweigRun):
     def load_woi_data(self) -> Tuple[Any, Any]:
         """Load walls of interest (WOIs) from a file."""
         woi_gdf = gpd.read_file(self.config.woi_file)
-        trf = Affine.from_gdal(*self.raster_data.trf_arr)
+        trf = Affine.from_gdal(*self.transform)
         self.woi_pixel_xys = np.zeros((len(woi_gdf), 3), dtype=np.float32) - 999
         self.woi_names = []
         for n, (idx, row) in enumerate(woi_gdf.iterrows()):
@@ -99,15 +99,15 @@ class SolweigRunCore(SolweigRun):
     def save_woi_results(self) -> None:
         """Save walls of interest (WOIs) results to a file."""
         # Convert pixel coordinates to geographic coordinates
-        xs = [r["col_idx"] * self.raster_data.trf_arr[1] + self.raster_data.trf_arr[0] for r in self.woi_results]
-        ys = [r["row_idx"] * self.raster_data.trf_arr[1] + self.raster_data.trf_arr[3] for r in self.woi_results]
+        xs = [r["col_idx"] * self.transform[1] + self.transform[0] for r in self.woi_results]
+        ys = [r["row_idx"] * self.transform[1] + self.transform[3] for r in self.woi_results]
         woi_gdf = gpd.GeoDataFrame(
             self.woi_results,
             geometry=gpd.points_from_xy(
                 xs,
                 ys,
             ),
-            crs=self.raster_data.crs_wkt,
+            crs=self.crs,
         )
         # Create a datetime column for multi-index
         woi_gdf["snapshot"] = pd.to_datetime(

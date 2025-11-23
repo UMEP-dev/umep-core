@@ -232,15 +232,22 @@ def get_raster_metadata(path_str: str | Path) -> dict:
     """
     Get raster metadata without loading the whole file.
     Returns dict with keys: rows, cols, transform, crs, nodata, res.
+    Transform is always a list [c, a, b, f, d, e] (GDAL-style).
+    CRS is always a WKT string (or None).
     """
     path = check_path(path_str)
     if GDAL_ENV is False:
         with rasterio.open(path) as src:
+            # Convert Affine to GDAL-style list
+            trf = src.transform
+            transform_list = [trf.c, trf.a, trf.b, trf.f, trf.d, trf.e]
+            # Convert CRS to WKT string
+            crs_wkt = src.crs.to_wkt() if src.crs is not None else None
             return {
                 "rows": src.height,
                 "cols": src.width,
-                "transform": src.transform,  # Affine object
-                "crs": src.crs,
+                "transform": transform_list,
+                "crs": crs_wkt,
                 "nodata": src.nodata,
                 "res": src.res,  # (xres, yres)
                 "bounds": src.bounds,
@@ -250,14 +257,11 @@ def get_raster_metadata(path_str: str | Path) -> dict:
         if ds is None:
             raise OSError(f"Could not open {path}")
         gt = ds.GetGeoTransform()
-        # GDAL GT: (c, a, b, f, d, e)
-        # rasterio Affine: (a, b, c, d, e, f)
-        # We'll return the raw GDAL transform here, caller needs to handle difference if mixing
         return {
             "rows": ds.RasterYSize,
             "cols": ds.RasterXSize,
             "transform": gt,
-            "crs": ds.GetProjection(),
+            "crs": ds.GetProjection() or None,
             "nodata": ds.GetRasterBand(1).GetNoDataValue(),
             "res": (gt[1], abs(gt[5])),  # Approximate resolution
         }
