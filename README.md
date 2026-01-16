@@ -1,15 +1,60 @@
 # UMEP Core
 
-## Setup
+## Installation
 
-- Make sure you have a Python installation on your system
-- Install `vscode` and `github` apps.
+```bash
+pip install umep
+```
+
+Or with uv:
+
+```bash
+uv add umep
+```
+
+## Troubleshooting
+
+If you encounter DLL or import errors (common on Windows), run the diagnostic tool:
+
+```bash
+umep-doctor
+```
+
+### Common Issues
+
+**OSGeo4W / QGIS Users**
+
+Do NOT pip install into the OSGeo4W Python environment. The pre-installed GDAL binaries will conflict with rasterio's bundled DLLs, causing errors like:
+
+```
+ImportError: DLL load failed while importing _base: The specified procedure could not be found.
+```
+
+Instead, create a separate virtual environment:
+
+```bash
+uv venv --python 3.12
+.venv\Scripts\activate   # Windows
+uv pip install umep
+```
+
+**Conda Alternative**
+
+If you prefer conda, use conda-forge for the geospatial dependencies:
+
+```bash
+conda create -n umep -c conda-forge python=3.12 rasterio geopandas pyproj shapely
+conda activate umep
+pip install umep
+```
+
+## Development Setup
+
 - Install `uv` package manager (e.g. `pip install uv`).
 - Clone repo.
-- Run `uv sync` from the directory where `pyproject.toml` in located to install `.venv` and packages.
-- Select `.venv` Python environment.
-- FYI: Recommended settings and extensions are included in the repo. Proceed if prompted to install extensions.
-- Develop and commit to Github often!
+- Run `uv sync` from the directory where `pyproject.toml` is located to install `.venv` and packages.
+- Select `.venv` Python environment in your IDE.
+- FYI: Recommended VS Code settings and extensions are included in the repo.
 
 ## Demo
 

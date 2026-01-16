@@ -19,14 +19,20 @@ try:
     GDAL_ENV = False
     logger.info("Using rasterio for raster operations.")
 
-except:
+except ImportError as e:
+    logger.warning(f"Failed to import rasterio: {e}")
     try:
         from osgeo import gdal, osr
 
         GDAL_ENV = True
-    except ImportError:
-        GDAL_ENV = False
-    logger.info("Using GDAL for raster operations.")
+        logger.info("Using GDAL for raster operations.")
+    except ImportError as e2:
+        logger.error(
+            f"Failed to import both rasterio and GDAL: {e2}\n"
+            "If using OSGeo4W, do not pip install into it - use a separate virtual environment.\n"
+            "Recommended: uv venv && uv add umep"
+        )
+        raise ImportError("Neither rasterio nor GDAL could be imported. Install with: uv pip install rasterio") from e2
 
 
 FLOAT_TOLERANCE = 1e-9
