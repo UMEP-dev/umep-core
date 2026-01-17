@@ -21,10 +21,19 @@ class SolweigRunCore(SolweigRun):
         params_json_path: str,
         amax_local_window_m: int = 100,
         amax_local_perc: float = 99.9,
+        use_tiled_loading: bool = False,
+        tile_size: int = 1024,
     ):
         config = SolweigConfig()
         config.from_file(config_path_str)
-        super().__init__(config, params_json_path, amax_local_window_m, amax_local_perc)
+        super().__init__(
+            config,
+            params_json_path,
+            amax_local_window_m,
+            amax_local_perc,
+            use_tiled_loading,
+            tile_size,
+        )
 
     def prep_progress(self, num: int) -> None:
         """Prepare progress for environment."""
@@ -41,8 +50,8 @@ class SolweigRunCore(SolweigRun):
         """Load points of interest (POIs) from a file."""
         poi_path_str = str(common.check_path(self.config.poi_path))
         pois_gdf = gpd.read_file(poi_path_str)
-        trf = Affine.from_gdal(*self.raster_data.trf_arr)
-        self.poi_pixel_xys = np.zeros((len(pois_gdf), 3)) - 999
+        trf = Affine.from_gdal(*self.transform)
+        self.poi_pixel_xys = np.zeros((len(pois_gdf), 3), dtype=np.float32) - 999
         self.poi_names = []
         for n, (idx, row) in enumerate(pois_gdf.iterrows()):
             self.poi_names.append(idx)
@@ -52,15 +61,15 @@ class SolweigRunCore(SolweigRun):
     def save_poi_results(self) -> None:
         """Save points of interest (POIs) results to a file."""
         # Convert pixel coordinates to geographic coordinates
-        xs = [r["col_idx"] * self.raster_data.trf_arr[1] + self.raster_data.trf_arr[0] for r in self.poi_results]
-        ys = [r["row_idx"] * self.raster_data.trf_arr[1] + self.raster_data.trf_arr[3] for r in self.poi_results]
+        xs = [r["col_idx"] * self.transform[1] + self.transform[0] for r in self.poi_results]
+        ys = [r["row_idx"] * self.transform[1] + self.transform[3] for r in self.poi_results]
         pois_gdf = gpd.GeoDataFrame(
             self.poi_results,
             geometry=gpd.points_from_xy(
                 xs,
                 ys,
             ),
-            crs=self.raster_data.crs_wkt,
+            crs=self.crs,
         )
         # Create a datetime column for multi-index
         pois_gdf["snapshot"] = pd.to_datetime(
@@ -79,8 +88,8 @@ class SolweigRunCore(SolweigRun):
     def load_woi_data(self) -> Tuple[Any, Any]:
         """Load walls of interest (WOIs) from a file."""
         woi_gdf = gpd.read_file(self.config.woi_file)
-        trf = Affine.from_gdal(*self.raster_data.trf_arr)
-        self.woi_pixel_xys = np.zeros((len(woi_gdf), 3)) - 999
+        trf = Affine.from_gdal(*self.transform)
+        self.woi_pixel_xys = np.zeros((len(woi_gdf), 3), dtype=np.float32) - 999
         self.woi_names = []
         for n, (idx, row) in enumerate(woi_gdf.iterrows()):
             self.woi_names.append(idx)
@@ -90,15 +99,15 @@ class SolweigRunCore(SolweigRun):
     def save_woi_results(self) -> None:
         """Save walls of interest (WOIs) results to a file."""
         # Convert pixel coordinates to geographic coordinates
-        xs = [r["col_idx"] * self.raster_data.trf_arr[1] + self.raster_data.trf_arr[0] for r in self.woi_results]
-        ys = [r["row_idx"] * self.raster_data.trf_arr[1] + self.raster_data.trf_arr[3] for r in self.woi_results]
+        xs = [r["col_idx"] * self.transform[1] + self.transform[0] for r in self.woi_results]
+        ys = [r["row_idx"] * self.transform[1] + self.transform[3] for r in self.woi_results]
         woi_gdf = gpd.GeoDataFrame(
             self.woi_results,
             geometry=gpd.points_from_xy(
                 xs,
                 ys,
             ),
-            crs=self.raster_data.crs_wkt,
+            crs=self.crs,
         )
         # Create a datetime column for multi-index
         woi_gdf["snapshot"] = pd.to_datetime(
@@ -155,7 +164,7 @@ class SolweigRunCore(SolweigRun):
                 "Wind": filtered_df["wind_speed"],
                 "RH": filtered_df["relative_humidity"],
                 "Tair": filtered_df["temp_air"],
-                "pres": filtered_df["atmospheric_pressure"].astype(float),  # Pascal, ensure float
+                "pres": filtered_df["atmospheric_pressure"].astype(np.float32),  # Pascal, ensure float32
                 "rain": -999,
                 "Kdown": filtered_df["ghi"],
                 "snow": filtered_df["snow_depth"],
@@ -182,17 +191,17 @@ class SolweigRunCore(SolweigRun):
         return EnvironData(
             self.config,
             self.params,
-            YYYY=umep_df["iy"].to_numpy(),
-            DOY=umep_df["id"].to_numpy(),
-            hours=umep_df["it"].to_numpy(),
-            minu=umep_df["imin"].to_numpy(),
-            Ta=umep_df["Tair"].to_numpy(),
-            RH=umep_df["RH"].to_numpy(),
-            radG=umep_df["Kdown"].to_numpy(),
-            radD=umep_df["ldown"].to_numpy(),
-            radI=umep_df["Kdiff"].to_numpy(),
-            P=umep_df["pres"].to_numpy() / 100.0,  # convert from Pa to hPa,
-            Ws=umep_df["Wind"].to_numpy(),
+            YYYY=umep_df["iy"].to_numpy(dtype=np.float32),
+            DOY=umep_df["id"].to_numpy(dtype=np.float32),
+            hours=umep_df["it"].to_numpy(dtype=np.float32),
+            minu=umep_df["imin"].to_numpy(dtype=np.float32),
+            Ta=umep_df["Tair"].to_numpy(dtype=np.float32),
+            RH=umep_df["RH"].to_numpy(dtype=np.float32),
+            radG=umep_df["Kdown"].to_numpy(dtype=np.float32),
+            radD=umep_df["ldown"].to_numpy(dtype=np.float32),
+            radI=umep_df["Kdiff"].to_numpy(dtype=np.float32),
+            P=umep_df["pres"].to_numpy(dtype=np.float32) / 100.0,  # convert from Pa to hPa,
+            Ws=umep_df["Wind"].to_numpy(dtype=np.float32),
             location=self.location,
             UTC=self.config.utc,
         )

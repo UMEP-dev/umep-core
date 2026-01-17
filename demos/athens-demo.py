@@ -42,6 +42,7 @@ common.save_raster(
     cdsm_rast,
     cdsm_transf.to_gdal(),
     CRS.from_epsg(working_crs).to_wkt(),
+    coerce_f64_to_f32=True,
 )
 # %%
 # wall info for SOLWEIG
@@ -60,6 +61,8 @@ skyviewfactor_algorithm.generate_svf(
     dem_path=input_path_str + "/DEM.tif",
     cdsm_path=output_folder_path_str + "/CDSM.tif",
     trans_veg_perc=3,
+    use_tiled_loading=False,
+    tile_size=200,
 )
 
 # %%
@@ -68,3 +71,28 @@ SRC = solweig_runner_core.SolweigRunCore(
     "demos/data/athens/parametersforsolweig.json",
 )
 SRC.run()
+
+# %%
+# skyview factor for SOLWEIG - tiled
+skyviewfactor_algorithm.generate_svf(
+    dsm_path=input_path_str + "/DSM.tif",
+    bbox=total_extents,
+    out_dir=output_folder_path_str + "/svf_tiled",
+    dem_path=input_path_str + "/DEM.tif",
+    cdsm_path=output_folder_path_str + "/CDSM.tif",
+    trans_veg_perc=3,
+    use_tiled_loading=True,
+    tile_size=200,
+)
+
+# %%
+# Tiled
+SRC = solweig_runner_core.SolweigRunCore(
+    "demos/data/athens/configsolweig_tiled.ini",
+    "demos/data/athens/parametersforsolweig.json",
+    use_tiled_loading=True,
+    tile_size=200,
+)
+SRC.run()
+
+# %%

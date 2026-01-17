@@ -129,7 +129,7 @@ def generate_solweig(
     Path.mkdir(out_path / "shadows", parents=True, exist_ok=True)
     Path.mkdir(out_path / "Tmrt", parents=True, exist_ok=True)
 
-    dsm, dsm_transf, dsm_crs, _dsm_nd = common.load_raster(dsm_path, bbox)
+    dsm, dsm_transf, dsm_crs, _dsm_nd = common.load_raster(dsm_path, bbox, coerce_f64_to_f32=True)
     dsm_trf_affine = Affine.from_gdal(*dsm_transf)
     dsm_scale = 1 / dsm_transf[1]
     dsm_height, dsm_width = dsm.shape  # y rows by x cols
@@ -152,7 +152,9 @@ def generate_solweig(
 
     if veg_dsm_path is not None:
         usevegdem = 1
-        veg_dsm, veg_dsm_transf, veg_dsm_crs, _veg_dsm_nd = common.load_raster(veg_dsm_path, bbox)
+        veg_dsm, veg_dsm_transf, veg_dsm_crs, _veg_dsm_nd = common.load_raster(
+            veg_dsm_path, bbox, coerce_f64_to_f32=True
+        )
         veg_dsm_height, veg_dsm_width = veg_dsm.shape
         if not (veg_dsm_width == dsm_width) & (veg_dsm_height == dsm_height):
             raise ValueError("Error in Vegetation Canopy DSM: All rasters must be of same extent and resolution")
@@ -182,23 +184,23 @@ def generate_solweig(
     zip.extractall(temp_dir)
     zip.close()
 
-    svf, _, _, _ = common.load_raster(temp_dir + "/svf.tif", bbox)
-    svfN, _, _, _ = common.load_raster(temp_dir + "/svfN.tif", bbox)
-    svfS, _, _, _ = common.load_raster(temp_dir + "/svfS.tif", bbox)
-    svfE, _, _, _ = common.load_raster(temp_dir + "/svfE.tif", bbox)
-    svfW, _, _, _ = common.load_raster(temp_dir + "/svfW.tif", bbox)
+    svf, _, _, _ = common.load_raster(temp_dir + "/svf.tif", bbox, coerce_f64_to_f32=True)
+    svfN, _, _, _ = common.load_raster(temp_dir + "/svfN.tif", bbox, coerce_f64_to_f32=True)
+    svfS, _, _, _ = common.load_raster(temp_dir + "/svfS.tif", bbox, coerce_f64_to_f32=True)
+    svfE, _, _, _ = common.load_raster(temp_dir + "/svfE.tif", bbox, coerce_f64_to_f32=True)
+    svfW, _, _, _ = common.load_raster(temp_dir + "/svfW.tif", bbox, coerce_f64_to_f32=True)
 
     if usevegdem == 1:
-        svfveg, _, _, _ = common.load_raster(temp_dir + "/svfveg.tif", bbox)
-        svfNveg, _, _, _ = common.load_raster(temp_dir + "/svfNveg.tif", bbox)
-        svfSveg, _, _, _ = common.load_raster(temp_dir + "/svfSveg.tif", bbox)
-        svfEveg, _, _, _ = common.load_raster(temp_dir + "/svfEveg.tif", bbox)
-        svfWveg, _, _, _ = common.load_raster(temp_dir + "/svfWveg.tif", bbox)
-        svfaveg, _, _, _ = common.load_raster(temp_dir + "/svfaveg.tif", bbox)
-        svfNaveg, _, _, _ = common.load_raster(temp_dir + "/svfNaveg.tif", bbox)
-        svfSaveg, _, _, _ = common.load_raster(temp_dir + "/svfSaveg.tif", bbox)
-        svfEaveg, _, _, _ = common.load_raster(temp_dir + "/svfEaveg.tif", bbox)
-        svfWaveg, _, _, _ = common.load_raster(temp_dir + "/svfWaveg.tif", bbox)
+        svfveg, _, _, _ = common.load_raster(temp_dir + "/svfveg.tif", bbox, coerce_f64_to_f32=True)
+        svfNveg, _, _, _ = common.load_raster(temp_dir + "/svfNveg.tif", bbox, coerce_f64_to_f32=True)
+        svfSveg, _, _, _ = common.load_raster(temp_dir + "/svfSveg.tif", bbox, coerce_f64_to_f32=True)
+        svfEveg, _, _, _ = common.load_raster(temp_dir + "/svfEveg.tif", bbox, coerce_f64_to_f32=True)
+        svfWveg, _, _, _ = common.load_raster(temp_dir + "/svfWveg.tif", bbox, coerce_f64_to_f32=True)
+        svfaveg, _, _, _ = common.load_raster(temp_dir + "/svfaveg.tif", bbox, coerce_f64_to_f32=True)
+        svfNaveg, _, _, _ = common.load_raster(temp_dir + "/svfNaveg.tif", bbox, coerce_f64_to_f32=True)
+        svfSaveg, _, _, _ = common.load_raster(temp_dir + "/svfSaveg.tif", bbox, coerce_f64_to_f32=True)
+        svfEaveg, _, _, _ = common.load_raster(temp_dir + "/svfEaveg.tif", bbox, coerce_f64_to_f32=True)
+        svfWaveg, _, _, _ = common.load_raster(temp_dir + "/svfWaveg.tif", bbox, coerce_f64_to_f32=True)
     else:
         svfveg = np.ones((dsm_height, dsm_width))
         svfNveg = np.ones((dsm_height, dsm_width))
@@ -218,11 +220,11 @@ def generate_solweig(
     tmp[tmp < 0.0] = 0.0
     svfalfa = np.arcsin(np.exp(np.log(1.0 - tmp) / 2.0))
 
-    wh_rast, wh_transf, wh_crs, _wh_nd = common.load_raster(wall_ht_path, bbox)
+    wh_rast, wh_transf, wh_crs, _wh_nd = common.load_raster(wall_ht_path, bbox, coerce_f64_to_f32=True)
     wh_height, wh_width = wh_rast.shape
     if not (wh_width == dsm_width) & (wh_height == dsm_height):
         raise ValueError("Error in Wall height raster: All rasters must be of same extent and resolution")
-    wa_rast, wa_transf, wa_crs, _wa_nd = common.load_raster(wall_aspect_path, bbox)
+    wa_rast, wa_transf, wa_crs, _wa_nd = common.load_raster(wall_aspect_path, bbox, coerce_f64_to_f32=True)
     wa_height, wa_width = wa_rast.shape
     if not (wa_width == dsm_width) & (wa_height == dsm_height):
         raise ValueError("Error in Wall aspect raster: All rasters must be of same extent and resolution")
@@ -678,10 +680,7 @@ def generate_solweig(
                 poi_results.append(result_row)
 
         common.save_raster(
-            out_path_str + "/Tmrt/Tmrt_" + time_code + ".tif",
-            Tmrt,
-            dsm_transf,
-            dsm_crs,
+            out_path_str + "/Tmrt/Tmrt_" + time_code + ".tif", Tmrt, dsm_transf, dsm_crs, coerce_f64_to_f32=True
         )
         common.save_raster(
             out_path_str
@@ -699,6 +698,7 @@ def generate_solweig(
             shadow,
             dsm_transf,
             dsm_crs,
+            coerce_f64_to_f32=True,
         )
 
     # After the main loop, write all POI results to a single GPKG file with multi-index
@@ -735,6 +735,6 @@ def generate_solweig(
     umep_df.to_csv(out_path_str + "/metforcing.csv")
 
     tmrtplot = tmrtplot / Ta.__len__()  # fix average Tmrt instead of sum, 20191022
-    common.save_raster(out_path_str + "/Tmrt_average.tif", tmrtplot, dsm_transf, dsm_crs)
+    common.save_raster(out_path_str + "/Tmrt_average.tif", tmrtplot, dsm_transf, dsm_crs, coerce_f64_to_f32=True)
 
     rmtree(temp_dir, ignore_errors=True)
