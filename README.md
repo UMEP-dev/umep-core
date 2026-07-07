@@ -1,5 +1,7 @@
 # UMEP Core
 
+> This repository is being archived and is superseded by [https://github.com/UMEP-dev/solweig](https://github.com/UMEP-dev/solweig) which is a Python-wrapped Rust implementation with support both for Python and for QGIS 4, as well as for CPU and GPU.
+
 ## Setup
 
 - Make sure you have a Python installation on your system
