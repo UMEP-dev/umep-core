@@ -218,6 +218,7 @@ def reflected_longwave(reflecting_surface, steradian, angle_of_incidence, angle_
 
     return Lside_ref, Ldown_ref, Least, Lsouth, Lwest, Lnorth
 
+
 def patch_steradians(L_patches):
     ''''This function calculates the steradians of the patches'''
 
@@ -233,13 +234,26 @@ def patch_steradians(L_patches):
     # Calculation of steradian for each patch
     steradian = np.zeros((patch_altitude.shape[0]))
     for i in range(patch_altitude.shape[0]):
+        # Extract scalar values to avoid array indexing issues
+        patch_alt_i = float(patch_altitude[i])
+        patch_alt_0 = float(patch_altitude[0])
+        
+        # Find matching index and extract count as scalar
+        match_idx = skyalt == patch_alt_i
+        if np.any(match_idx):
+            # Extract first matching element as scalar
+            skyalt_count = float(skyalt_c[match_idx][0])
+        else:
+            skyalt_count = 1.0  # Default if no match found
+        
         # If there are more than one patch in a band
-        if skyalt_c[skyalt == patch_altitude[i]] > 1:
-            steradian[i] = ((360 / skyalt_c[skyalt == patch_altitude[i]]) * deg2rad) * (np.sin((patch_altitude[i] + patch_altitude[0]) * deg2rad) \
-            - np.sin((patch_altitude[i] - patch_altitude[0]) * deg2rad))
+        if skyalt_count > 1:
+            steradian[i] = ((360 / skyalt_count) * deg2rad) * (np.sin((patch_alt_i + patch_alt_0) * deg2rad) \
+            - np.sin((patch_alt_i - patch_alt_0) * deg2rad))
         # If there is only one patch in band, i.e. 90 degrees
         else:
-            steradian[i] = ((360 / skyalt_c[skyalt == patch_altitude[i]]) * deg2rad) * (np.sin((patch_altitude[i]) * deg2rad) \
-                - np.sin((patch_altitude[i-1] + patch_altitude[0]) * deg2rad))     
+            patch_alt_prev = float(patch_altitude[i-1])
+            steradian[i] = ((360 / skyalt_count) * deg2rad) * (np.sin((patch_alt_i) * deg2rad) \
+                - np.sin((patch_alt_prev + patch_alt_0) * deg2rad))     
             
     return steradian, skyalt, patch_altitude
