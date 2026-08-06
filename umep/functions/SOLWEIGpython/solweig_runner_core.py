@@ -42,7 +42,7 @@ class SolweigRunCore(SolweigRun):
         poi_path_str = str(common.check_path(self.config.poi_path))
         pois_gdf = gpd.read_file(poi_path_str)
         trf = Affine.from_gdal(*self.raster_data.trf_arr)
-        self.poi_pixel_xys = np.zeros((len(pois_gdf), 3)) - 999
+        self.poi_pixel_xys = np.zeros((len(pois_gdf), 3), dtype=np.float32) - 999
         self.poi_names = []
         for n, (idx, row) in enumerate(pois_gdf.iterrows()):
             self.poi_names.append(idx)
@@ -80,7 +80,7 @@ class SolweigRunCore(SolweigRun):
         """Load walls of interest (WOIs) from a file."""
         woi_gdf = gpd.read_file(self.config.woi_file)
         trf = Affine.from_gdal(*self.raster_data.trf_arr)
-        self.woi_pixel_xys = np.zeros((len(woi_gdf), 3)) - 999
+        self.woi_pixel_xys = np.zeros((len(woi_gdf), 3), dtype=np.float32) - 999
         self.woi_names = []
         for n, (idx, row) in enumerate(woi_gdf.iterrows()):
             self.woi_names.append(idx)
@@ -155,7 +155,7 @@ class SolweigRunCore(SolweigRun):
                 "Wind": filtered_df["wind_speed"],
                 "RH": filtered_df["relative_humidity"],
                 "Tair": filtered_df["temp_air"],
-                "pres": filtered_df["atmospheric_pressure"].astype(float),  # Pascal, ensure float
+                "pres": filtered_df["atmospheric_pressure"].astype(np.float32),  # Pascal, ensure float32
                 "rain": -999,
                 "Kdown": filtered_df["ghi"],
                 "snow": filtered_df["snow_depth"],
@@ -182,17 +182,17 @@ class SolweigRunCore(SolweigRun):
         return EnvironData(
             self.config,
             self.params,
-            YYYY=umep_df["iy"].to_numpy(),
-            DOY=umep_df["id"].to_numpy(),
-            hours=umep_df["it"].to_numpy(),
-            minu=umep_df["imin"].to_numpy(),
-            Ta=umep_df["Tair"].to_numpy(),
-            RH=umep_df["RH"].to_numpy(),
-            radG=umep_df["Kdown"].to_numpy(),
-            radD=umep_df["ldown"].to_numpy(),
-            radI=umep_df["Kdiff"].to_numpy(),
-            P=umep_df["pres"].to_numpy() / 100.0,  # convert from Pa to hPa,
-            Ws=umep_df["Wind"].to_numpy(),
+            YYYY=umep_df["iy"].to_numpy(dtype=np.float32),
+            DOY=umep_df["id"].to_numpy(dtype=np.float32),
+            hours=umep_df["it"].to_numpy(dtype=np.float32),
+            minu=umep_df["imin"].to_numpy(dtype=np.float32),
+            Ta=umep_df["Tair"].to_numpy(dtype=np.float32),
+            RH=umep_df["RH"].to_numpy(dtype=np.float32),
+            radG=umep_df["Kdown"].to_numpy(dtype=np.float32),
+            radD=umep_df["ldown"].to_numpy(dtype=np.float32),
+            radI=umep_df["Kdiff"].to_numpy(dtype=np.float32),
+            P=umep_df["pres"].to_numpy(dtype=np.float32) / 100.0,  # convert from Pa to hPa,
+            Ws=umep_df["Wind"].to_numpy(dtype=np.float32),
             location=self.location,
             UTC=self.config.utc,
         )

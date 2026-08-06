@@ -17,8 +17,8 @@ def test_save_and_load_raster_roundtrip(tmp_path):
     crs_wkt = pyproj.CRS.from_epsg(4326).to_wkt()
 
     # save and load
-    save_raster(str(out), data, trf, crs_wkt, no_data_val=-9999)
-    rast, trf_out, crs_out, nodata = load_raster(str(out))
+    save_raster(str(out), data, trf, crs_wkt, no_data_val=-9999, coerce_f64_to_f32=True)
+    rast, trf_out, crs_out, nodata = load_raster(str(out), coerce_f64_to_f32=True)
 
     np.testing.assert_array_equal(rast, data)
     assert isinstance(trf_out, list) and len(trf_out) == 6
@@ -34,12 +34,12 @@ def test_load_raster_with_bbox(tmp_path):
     data = np.arange(100, dtype=np.float32).reshape(10, 10)
     trf = _make_gt(10, 10)
     crs_wkt = pyproj.CRS.from_epsg(4326).to_wkt()
-    save_raster(str(out), data, trf, crs_wkt, -9999)
+    save_raster(str(out), data, trf, crs_wkt, -9999, coerce_f64_to_f32=True)
 
     # bbox in spatial coords: [minx, miny, maxx, maxy]
     # For our geotransform bounds = [0,0,10,10]
     bbox = [2, 2, 5, 5]
-    rast_crop, trf_crop, crs_crop, nd = load_raster(str(out), bbox=bbox)
+    rast_crop, trf_crop, crs_crop, nd = load_raster(str(out), bbox=bbox, coerce_f64_to_f32=True)
 
     # Expected slice computed from implementation mapping
     assert rast_crop.shape == (3, 3)

@@ -159,7 +159,7 @@ class SolweigRun:
     def load_met_weather(self, header_rows: int = 1, delim: str = " ") -> EnvironData:
         """Load weather data from a MET file."""
         met_path_str = str(common.check_path(self.config.met_path))
-        met_data = np.loadtxt(met_path_str, skiprows=header_rows, delimiter=delim)
+        met_data = np.loadtxt(met_path_str, skiprows=header_rows, delimiter=delim, dtype=np.float32)
         return EnvironData(
             self.config,
             self.params,
@@ -201,7 +201,7 @@ class SolweigRun:
         """
         n_patches = self.shadow_mats.shmat.shape[2]
         n_pois = self.poi_pixel_xys.shape[0]
-        patch_characteristics = np.zeros((n_patches, n_pois))
+        patch_characteristics = np.zeros((n_patches, n_pois), dtype=np.float32)
 
         # Get POI indices as integer arrays
         poi_y = self.poi_pixel_xys[:, 2].astype(int)
@@ -378,12 +378,12 @@ class SolweigRun:
         if np.unique(self.environ_data.DOY).shape[0] > 1:
             unique_days = np.unique(self.environ_data.DOY)
             first_unique_day = self.environ_data.DOY[unique_days[0] == self.environ_data.DOY]
-            I0_array = np.zeros_like(first_unique_day)
+            I0_array = np.zeros_like(first_unique_day, dtype=np.float32)
         else:
             first_unique_day = self.environ_data.DOY.copy()
-            I0_array = np.zeros_like(self.environ_data.DOY)
+            I0_array = np.zeros_like(self.environ_data.DOY, dtype=np.float32)
         # For Tmrt plot
-        tmrt_agg = np.zeros((self.raster_data.rows, self.raster_data.cols))
+        tmrt_agg = np.zeros((self.raster_data.rows, self.raster_data.cols), dtype=np.float32)
         # Number of iterations
         num = len(self.environ_data.Ta)
         # Prepare progress tracking
@@ -633,6 +633,7 @@ class SolweigRun:
                     self.raster_data.trf_arr,
                     self.raster_data.crs_wkt,
                     self.raster_data.nd_val,
+                    coerce_f64_to_f32=True,
                 )
             if self.config.output_kup:
                 common.save_raster(
@@ -641,6 +642,7 @@ class SolweigRun:
                     self.raster_data.trf_arr,
                     self.raster_data.crs_wkt,
                     self.raster_data.nd_val,
+                    coerce_f64_to_f32=True,
                 )
             if self.config.output_kdown:
                 common.save_raster(
@@ -649,6 +651,7 @@ class SolweigRun:
                     self.raster_data.trf_arr,
                     self.raster_data.crs_wkt,
                     self.raster_data.nd_val,
+                    coerce_f64_to_f32=True,
                 )
             if self.config.output_lup:
                 common.save_raster(
@@ -657,6 +660,7 @@ class SolweigRun:
                     self.raster_data.trf_arr,
                     self.raster_data.crs_wkt,
                     self.raster_data.nd_val,
+                    coerce_f64_to_f32=True,
                 )
             if self.config.output_ldown:
                 common.save_raster(
@@ -665,6 +669,7 @@ class SolweigRun:
                     self.raster_data.trf_arr,
                     self.raster_data.crs_wkt,
                     self.raster_data.nd_val,
+                    coerce_f64_to_f32=True,
                 )
             if self.config.output_sh:
                 common.save_raster(
@@ -673,6 +678,7 @@ class SolweigRun:
                     self.raster_data.trf_arr,
                     self.raster_data.crs_wkt,
                     self.raster_data.nd_val,
+                    coerce_f64_to_f32=True,
                 )
             if self.config.output_kdiff:
                 common.save_raster(
@@ -681,6 +687,7 @@ class SolweigRun:
                     self.raster_data.trf_arr,
                     self.raster_data.crs_wkt,
                     self.raster_data.nd_val,
+                    coerce_f64_to_f32=True,
                 )
 
             # Sky view image of patches
@@ -771,7 +778,8 @@ class SolweigRun:
                         self.location["altitude"],
                         self.shadow_mats.patch_option,
                     ]
-                ]
+                ],
+                dtype=np.float32,
             )
             np.savetxt(
                 self.config.output_dir + "/treeplantersettings.txt",
@@ -790,4 +798,5 @@ class SolweigRun:
                 self.raster_data.trf_arr,
                 self.raster_data.crs_wkt,
                 self.raster_data.nd_val,
+                coerce_f64_to_f32=True,
             )
